@@ -12,7 +12,6 @@ import {
   Smartphone,
   Package,
   Trash2,
-  Edit2,
   Check,
   Users,
   X,
@@ -23,7 +22,11 @@ import {
   FileText,
   UserPlus,
   Percent,
+  Upload,
+  Download,
+  File,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import Header from "@/components/layout/Header";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
@@ -51,6 +54,7 @@ interface Asset {
   estimated_value: number | null;
   description: string | null;
   location: string | null;
+  documents_url: string | null;
   allocations?: Allocation[];
 }
 
@@ -64,6 +68,7 @@ const AssetManagement = () => {
   const [showAllocationModal, setShowAllocationModal] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [allocations, setAllocations] = useState<{ recipientId: string; percentage: string }[]>([]);
+  const [uploadingAssetId, setUploadingAssetId] = useState<string | null>(null);
   const [newAsset, setNewAsset] = useState({
     name: "",
     category: "property" as AssetCategory,
@@ -258,6 +263,91 @@ const AssetManagement = () => {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
   };
 
+  const handleFileUpload = async (assetId: string, file: File) => {
+    if (!user) return;
+
+    setUploadingAssetId(assetId);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${user.id}/${assetId}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('asset-documents')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      // Update the asset with the document URL
+      const { error: updateError } = await supabase
+        .from('assets')
+        .update({ documents_url: filePath })
+        .eq('id', assetId);
+
+      if (updateError) throw updateError;
+
+      setAssets(assets.map(a => 
+        a.id === assetId ? { ...a, documents_url: filePath } : a
+      ));
+      toast.success("Document uploaded successfully");
+    } catch (error) {
+      console.error("Error uploading document:", error);
+      toast.error("Failed to upload document");
+    } finally {
+      setUploadingAssetId(null);
+    }
+  };
+
+  const handleDownloadDocument = async (asset: Asset) => {
+    if (!asset.documents_url) return;
+
+    try {
+      const { data, error } = await supabase.storage
+        .from('asset-documents')
+        .download(asset.documents_url);
+
+      if (error) throw error;
+
+      // Create a download link
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = asset.documents_url.split('/').pop() || 'document';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error downloading document:", error);
+      toast.error("Failed to download document");
+    }
+  };
+
+  const handleDeleteDocument = async (assetId: string, documentPath: string) => {
+    try {
+      const { error: deleteError } = await supabase.storage
+        .from('asset-documents')
+        .remove([documentPath]);
+
+      if (deleteError) throw deleteError;
+
+      const { error: updateError } = await supabase
+        .from('assets')
+        .update({ documents_url: null })
+        .eq('id', assetId);
+
+      if (updateError) throw updateError;
+
+      setAssets(assets.map(a => 
+        a.id === assetId ? { ...a, documents_url: null } : a
+      ));
+      toast.success("Document deleted");
+    } catch (error) {
+      console.error("Error deleting document:", error);
+      toast.error("Failed to delete document");
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
@@ -349,6 +439,51 @@ const AssetManagement = () => {
                       {asset.description && (
                         <p className="text-sm text-muted-foreground mb-3">{asset.description}</p>
                       )}
+
+                      {/* Documents */}
+                      <div className="flex items-center gap-2 mb-3">
+                        {asset.documents_url ? (
+                          <div className="flex items-center gap-2">
+                            <File className="w-4 h-4 text-gold" />
+                            <span className="text-sm text-muted-foreground">
+                              {asset.documents_url.split('/').pop()}
+                            </span>
+                            <button
+                              onClick={() => handleDownloadDocument(asset)}
+                              className="p-1 hover:bg-secondary rounded transition-colors"
+                              title="Download document"
+                            >
+                              <Download className="w-4 h-4 text-gold" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDocument(asset.id, asset.documents_url!)}
+                              className="p-1 hover:bg-destructive/10 rounded transition-colors"
+                              title="Delete document"
+                            >
+                              <Trash2 className="w-3 h-3 text-destructive" />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="inline-flex items-center gap-1 text-sm text-gold hover:underline cursor-pointer">
+                            {uploadingAssetId === asset.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Upload className="w-4 h-4" />
+                            )}
+                            Upload document
+                            <Input
+                              type="file"
+                              className="hidden"
+                              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleFileUpload(asset.id, file);
+                              }}
+                              disabled={uploadingAssetId === asset.id}
+                            />
+                          </label>
+                        )}
+                      </div>
 
                       {/* Allocations */}
                       {asset.allocations && asset.allocations.length > 0 ? (
