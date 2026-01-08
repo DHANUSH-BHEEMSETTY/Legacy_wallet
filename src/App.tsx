@@ -14,6 +14,8 @@ import Recipients from "./pages/Recipients";
 import ReviewWill from "./pages/ReviewWill";
 import Confirmation from "./pages/Confirmation";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +30,8 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/create" element={<ProtectedRoute><CreateWill /></ProtectedRoute>} />
             <Route path="/create/audio" element={<ProtectedRoute><CreateAudioWill /></ProtectedRoute>} />
