@@ -21,22 +21,31 @@ import {
   Briefcase,
   FileText,
   UserPlus,
-  Percent,
   Upload,
   Download,
   File,
+  Mail,
+  Phone,
+  Edit2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import Header from "@/components/layout/Header";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { validateAssetName, validateDescription, validateNumericValue, validateName, validateEmail, validatePhone, validateRelationship } from "@/lib/validation";
+import { validateDocumentFile } from "@/lib/fileValidation";
+import { useTranslation } from "react-i18next";
 
 type AssetCategory = "property" | "investment" | "bank_account" | "vehicle" | "jewelry" | "digital_asset" | "insurance" | "business" | "other";
 
 interface Recipient {
   id: string;
   full_name: string;
+  email: string | null;
+  phone: string | null;
+  relationship: string | null;
+  is_verified: boolean;
 }
 
 interface Allocation {
@@ -60,15 +69,24 @@ interface Asset {
 
 const AssetManagement = () => {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAllocationModal, setShowAllocationModal] = useState(false);
+  const [showRecipientsModal, setShowRecipientsModal] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
-  const [allocations, setAllocations] = useState<{ recipientId: string; percentage: string }[]>([]);
+  const [allocations, setAllocations] = useState<{ recipientId: string }[]>([]);
   const [uploadingAssetId, setUploadingAssetId] = useState<string | null>(null);
+  const [editingRecipient, setEditingRecipient] = useState<Recipient | null>(null);
+  const [newRecipient, setNewRecipient] = useState({
+    full_name: "",
+    email: "",
+    phone: "",
+    relationship: "",
+  });
   const [newAsset, setNewAsset] = useState({
     name: "",
     category: "property" as AssetCategory,
@@ -96,7 +114,7 @@ const AssetManagement = () => {
     try {
       const [assetsRes, recipientsRes, allocationsRes] = await Promise.all([
         supabase.from("assets").select("*").order("created_at", { ascending: false }),
-        supabase.from("recipients").select("id, full_name").order("full_name"),
+        supabase.from("recipients").select("id, full_name, email, phone, relationship, is_verified").order("full_name"),
         supabase.from("asset_allocations").select("*"),
       ]);
 
@@ -130,9 +148,38 @@ const AssetManagement = () => {
   };
 
   const handleAddAsset = async () => {
-    if (!newAsset.name || !user) {
-      toast.error("Please enter an asset name");
+    if (!user) {
+      toast.error("Please log in to add assets");
       return;
+    }
+
+    // Validate asset name
+    const nameValidation = validateAssetName(newAsset.name);
+    if (!nameValidation.isValid) {
+      toast.error(nameValidation.error || "Please enter a valid asset name");
+      return;
+    }
+
+    // Validate description if provided
+    let descriptionValue = null;
+    if (newAsset.description && newAsset.description.trim()) {
+      const descValidation = validateDescription(newAsset.description);
+      if (!descValidation.isValid) {
+        toast.error(descValidation.error || "Invalid description");
+        return;
+      }
+      descriptionValue = descValidation.sanitized;
+    }
+
+    // Validate estimated value if provided
+    let estimatedValue = null;
+    if (newAsset.estimated_value && newAsset.estimated_value.trim()) {
+      const valueValidation = validateNumericValue(newAsset.estimated_value);
+      if (!valueValidation.isValid) {
+        toast.error(valueValidation.error || "Invalid estimated value");
+        return;
+      }
+      estimatedValue = valueValidation.sanitized;
     }
 
     setSaving(true);
@@ -141,10 +188,10 @@ const AssetManagement = () => {
         .from("assets")
         .insert({
           user_id: user.id,
-          name: newAsset.name,
+          name: nameValidation.sanitized,
           category: newAsset.category,
-          estimated_value: newAsset.estimated_value ? parseFloat(newAsset.estimated_value.replace(/[^0-9.]/g, "")) : null,
-          description: newAsset.description || null,
+          estimated_value: estimatedValue,
+          description: descriptionValue,
         })
         .select()
         .single();
@@ -181,7 +228,6 @@ const AssetManagement = () => {
     setAllocations(
       asset.allocations?.map((a) => ({
         recipientId: a.recipient_id,
-        percentage: a.allocation_percentage.toString(),
       })) || []
     );
     setShowAllocationModal(true);
@@ -195,36 +241,26 @@ const AssetManagement = () => {
       toast.error("All recipients have been assigned");
       return;
     }
-    setAllocations([...allocations, { recipientId: availableRecipients[0].id, percentage: "" }]);
+    setAllocations([...allocations, { recipientId: availableRecipients[0].id }]);
   };
 
   const removeAllocationRow = (index: number) => {
     setAllocations(allocations.filter((_, i) => i !== index));
   };
 
-  const updateAllocation = (index: number, field: "recipientId" | "percentage", value: string) => {
+  const updateAllocation = (index: number, recipientId: string) => {
     const updated = [...allocations];
-    updated[index] = { ...updated[index], [field]: value };
+    updated[index] = { recipientId };
     setAllocations(updated);
-  };
-
-  const getTotalPercentage = () => {
-    return allocations.reduce((sum, a) => sum + (parseFloat(a.percentage) || 0), 0);
   };
 
   const saveAllocations = async () => {
     if (!selectedAsset) return;
 
-    const total = getTotalPercentage();
-    if (allocations.length > 0 && total !== 100) {
-      toast.error("Allocations must total 100%");
-      return;
-    }
-
+    // Validate that all recipients are selected
     for (const a of allocations) {
-      const pct = parseFloat(a.percentage);
-      if (!a.percentage || isNaN(pct) || pct <= 0 || pct > 100) {
-        toast.error("Each allocation must be between 1% and 100%");
+      if (!a.recipientId) {
+        toast.error("Please select a recipient for all allocations");
         return;
       }
     }
@@ -234,13 +270,14 @@ const AssetManagement = () => {
       // Delete existing allocations
       await supabase.from("asset_allocations").delete().eq("asset_id", selectedAsset.id);
 
-      // Insert new allocations
+      // Insert new allocations with equal distribution
       if (allocations.length > 0) {
+        const percentagePerRecipient = 100 / allocations.length;
         const { error } = await supabase.from("asset_allocations").insert(
           allocations.map((a) => ({
             asset_id: selectedAsset.id,
             recipient_id: a.recipientId,
-            allocation_percentage: parseFloat(a.percentage),
+            allocation_percentage: percentagePerRecipient,
           }))
         );
         if (error) throw error;
@@ -266,15 +303,29 @@ const AssetManagement = () => {
   const handleFileUpload = async (assetId: string, file: File) => {
     if (!user) return;
 
+    // Validate file before upload
+    const validation = await validateDocumentFile(file);
+    if (!validation.isValid) {
+      toast.error(validation.error || "Invalid file");
+      return;
+    }
+
     setUploadingAssetId(assetId);
     try {
-      const fileExt = file.name.split('.').pop();
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      if (!fileExt) {
+        throw new Error("File must have an extension");
+      }
+      
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = `${user.id}/${assetId}/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('asset-documents')
-        .upload(filePath, file);
+        .upload(filePath, file, {
+          contentType: file.type,
+          upsert: false,
+        });
 
       if (uploadError) throw uploadError;
 
@@ -348,6 +399,199 @@ const AssetManagement = () => {
     }
   };
 
+  // Recipient management functions
+  const sendVerificationEmail = async (recipientId: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("Not authenticated");
+      }
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-verification-email`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ recipientId }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to send verification email");
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Error sending verification email:", error);
+      throw error;
+    }
+  };
+
+  const handleEditRecipient = (recipient: Recipient) => {
+    setEditingRecipient(recipient);
+    setNewRecipient({
+      full_name: recipient.full_name,
+      email: recipient.email || "",
+      phone: recipient.phone || "",
+      relationship: recipient.relationship || "",
+    });
+  };
+
+  const handleSaveRecipient = async () => {
+    if (!user) {
+      toast.error("Please log in to save recipients");
+      return;
+    }
+
+    // Validate full name
+    const nameValidation = validateName(newRecipient.full_name);
+    if (!nameValidation.isValid) {
+      toast.error(nameValidation.error || "Please enter a name");
+      return;
+    }
+
+    // Validate email if provided
+    let emailValue = null;
+    if (newRecipient.email && newRecipient.email.trim()) {
+      const emailValidation = validateEmail(newRecipient.email);
+      if (!emailValidation.isValid) {
+        toast.error(emailValidation.error || "Please enter a valid email address");
+        return;
+      }
+      emailValue = emailValidation.sanitized;
+    }
+
+    // Validate phone if provided
+    let phoneValue = null;
+    if (newRecipient.phone && newRecipient.phone.trim()) {
+      const phoneValidation = validatePhone(newRecipient.phone);
+      if (!phoneValidation.isValid) {
+        toast.error(phoneValidation.error || "Please enter a valid phone number");
+        return;
+      }
+      phoneValue = phoneValidation.sanitized;
+    }
+
+    // Validate relationship if provided
+    let relationshipValue = null;
+    if (newRecipient.relationship && newRecipient.relationship.trim()) {
+      const relationshipValidation = validateRelationship(newRecipient.relationship);
+      if (!relationshipValidation.isValid) {
+        toast.error(relationshipValidation.error || "Invalid relationship");
+        return;
+      }
+      relationshipValue = relationshipValidation.sanitized;
+    }
+
+    setSaving(true);
+    try {
+      if (editingRecipient) {
+        // Update existing recipient
+        const { data, error } = await supabase
+          .from("recipients")
+          .update({
+            full_name: nameValidation.sanitized,
+            email: emailValue,
+            phone: phoneValue,
+            relationship: relationshipValue,
+          })
+          .eq("id", editingRecipient.id)
+          .select()
+          .single();
+
+        if (error) throw error;
+        
+        setRecipients(recipients.map(r => r.id === editingRecipient.id ? data : r));
+        toast.success("Recipient updated successfully");
+
+        // Send verification email if email changed and wasn't verified
+        if (emailValue && emailValue !== editingRecipient.email && !editingRecipient.is_verified && data.id) {
+          try {
+            await sendVerificationEmail(data.id);
+            toast.success("Verification email sent");
+          } catch (error) {
+            console.error("Error sending verification email:", error);
+            toast.error("Failed to send verification email");
+          }
+        }
+      } else {
+        // Add new recipient
+        const { data, error } = await supabase
+          .from("recipients")
+          .insert({
+            user_id: user.id,
+            full_name: nameValidation.sanitized,
+            email: emailValue,
+            phone: phoneValue,
+            relationship: relationshipValue,
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        
+        setRecipients([data, ...recipients]);
+        toast.success("Recipient added successfully");
+
+        // Send verification email if email is provided
+        if (emailValue && data.id) {
+          try {
+            await sendVerificationEmail(data.id);
+            toast.success("Verification email sent");
+          } catch (error) {
+            console.error("Error sending verification email:", error);
+            toast.error("Failed to send verification email");
+          }
+        }
+      }
+
+      setNewRecipient({ full_name: "", email: "", phone: "", relationship: "" });
+      setEditingRecipient(null);
+    } catch (error) {
+      console.error("Error saving recipient:", error);
+      toast.error(editingRecipient ? "Failed to update recipient" : "Failed to add recipient");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteRecipient = async (id: string) => {
+    try {
+      const { error } = await supabase.from("recipients").delete().eq("id", id);
+      if (error) throw error;
+      
+      setRecipients(recipients.filter((r) => r.id !== id));
+      toast.success("Recipient removed");
+    } catch (error) {
+      console.error("Error deleting recipient:", error);
+      toast.error("Failed to remove recipient");
+    }
+  };
+
+  const handleSendVerificationEmail = async (recipientId: string) => {
+    try {
+      await sendVerificationEmail(recipientId);
+      toast.success("Verification email sent");
+    } catch (error) {
+      console.error("Error sending verification email:", error);
+      toast.error("Failed to send verification email");
+    }
+  };
+
+  const relationships = [
+    "Spouse",
+    "Child",
+    "Sibling",
+    "Parent",
+    "Friend",
+    "Charity",
+    "Other",
+  ];
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
@@ -393,10 +637,16 @@ const AssetManagement = () => {
               <h1 className="heading-section text-foreground mb-2">Manage Your Assets</h1>
               <p className="text-muted-foreground">Add assets and assign them to recipients.</p>
             </div>
-            <Button variant="gold" className="gap-2" onClick={() => setShowAddModal(true)}>
-              <Plus className="w-4 h-4" />
-              Add Asset
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" className="gap-2" onClick={() => setShowRecipientsModal(true)}>
+                <Users className="w-4 h-4" />
+                Manage Recipients
+              </Button>
+              <Button variant="gold" className="gap-2" onClick={() => setShowAddModal(true)}>
+                <Plus className="w-4 h-4" />
+                Add Asset
+              </Button>
+            </div>
           </motion.div>
 
           {/* Category Filters */}
@@ -474,7 +724,7 @@ const AssetManagement = () => {
                             <Input
                               type="file"
                               className="hidden"
-                              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                              accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.jpg,.jpeg,.png,.gif,.webp"
                               onChange={(e) => {
                                 const file = e.target.files?.[0];
                                 if (file) handleFileUpload(asset.id, file);
@@ -491,7 +741,7 @@ const AssetManagement = () => {
                           <Users className="w-4 h-4 text-muted-foreground" />
                           {asset.allocations.map((a) => (
                             <span key={a.id} className="px-2 py-1 rounded-full bg-secondary text-xs font-medium">
-                              {a.recipient?.full_name}: {a.allocation_percentage}%
+                              {a.recipient?.full_name}
                             </span>
                           ))}
                         </div>
@@ -507,15 +757,17 @@ const AssetManagement = () => {
                     </div>
                     <div className="flex items-center gap-2">
                       <button
-                        className="p-2 hover:bg-secondary rounded-lg transition-colors"
+                        className="px-3 py-2 hover:bg-secondary rounded-lg transition-colors flex items-center gap-2 text-sm"
                         onClick={() => openAllocationModal(asset)}
-                        title="Manage allocations"
+                        title="Manage Recipients"
                       >
-                        <Percent className="w-4 h-4 text-muted-foreground" />
+                        <Users className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-muted-foreground">Manage Recipients</span>
                       </button>
                       <button
                         className="p-2 hover:bg-destructive/10 rounded-lg transition-colors"
                         onClick={() => handleDeleteAsset(asset.id)}
+                        title="Delete asset"
                       >
                         <Trash2 className="w-4 h-4 text-destructive" />
                       </button>
@@ -594,6 +846,8 @@ const AssetManagement = () => {
                     onChange={(e) => setNewAsset({ ...newAsset, name: e.target.value })}
                     placeholder="e.g., Family Home"
                     className="input-elevated"
+                    maxLength={200}
+                    required
                   />
                 </div>
 
@@ -635,6 +889,7 @@ const AssetManagement = () => {
                     onChange={(e) => setNewAsset({ ...newAsset, description: e.target.value })}
                     placeholder="Additional details about this asset..."
                     rows={3}
+                    maxLength={2000}
                     className="input-elevated resize-none"
                   />
                 </div>
@@ -698,27 +953,16 @@ const AssetManagement = () => {
                       <div key={index} className="flex items-center gap-3">
                         <select
                           value={allocation.recipientId}
-                          onChange={(e) => updateAllocation(index, "recipientId", e.target.value)}
+                          onChange={(e) => updateAllocation(index, e.target.value)}
                           className="input-elevated flex-1"
                         >
+                          <option value="">Select recipient...</option>
                           {recipients.map((r) => (
                             <option key={r.id} value={r.id} disabled={allocations.some((a, i) => i !== index && a.recipientId === r.id)}>
                               {r.full_name}
                             </option>
                           ))}
                         </select>
-                        <div className="relative w-24">
-                          <input
-                            type="number"
-                            min="1"
-                            max="100"
-                            value={allocation.percentage}
-                            onChange={(e) => updateAllocation(index, "percentage", e.target.value)}
-                            placeholder="0"
-                            className="input-elevated pr-8 text-right"
-                          />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
-                        </div>
                         <button
                           onClick={() => removeAllocationRow(index)}
                           className="p-2 hover:bg-destructive/10 rounded-lg transition-colors"
@@ -737,13 +981,9 @@ const AssetManagement = () => {
                   )}
 
                   {allocations.length > 0 && (
-                    <div className={`flex items-center justify-between p-3 rounded-lg mb-4 ${
-                      getTotalPercentage() === 100 ? "bg-sage/20" : "bg-destructive/10"
-                    }`}>
-                      <span className="text-sm font-medium">Total Allocation</span>
-                      <span className={`font-semibold ${getTotalPercentage() === 100 ? "text-foreground" : "text-destructive"}`}>
-                        {getTotalPercentage()}%
-                        {getTotalPercentage() !== 100 && <span className="text-xs ml-1">(must be 100%)</span>}
+                    <div className="p-3 rounded-lg mb-4 bg-sage/20">
+                      <span className="text-sm text-muted-foreground">
+                        {allocations.length} recipient{allocations.length !== 1 ? "s" : ""} will receive equal shares of this asset
                       </span>
                     </div>
                   )}
@@ -756,13 +996,214 @@ const AssetManagement = () => {
                       variant="gold"
                       className="flex-1"
                       onClick={saveAllocations}
-                      disabled={saving || (allocations.length > 0 && getTotalPercentage() !== 100)}
+                      disabled={saving || allocations.some(a => !a.recipientId)}
                     >
                       {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Allocations"}
                     </Button>
                   </div>
                 </>
               )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Recipients Management Modal */}
+      <AnimatePresence>
+        {showRecipientsModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-foreground/20 backdrop-blur-sm"
+            onClick={() => {
+              setShowRecipientsModal(false);
+              setEditingRecipient(null);
+              setNewRecipient({ full_name: "", email: "", phone: "", relationship: "" });
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="card-elevated w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-6 pb-4 border-b border-border">
+                <div>
+                  <h2 className="font-serif text-xl font-semibold text-foreground">Manage Recipients</h2>
+                  <p className="text-sm text-muted-foreground">Add, edit, or remove recipients for your assets</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowRecipientsModal(false);
+                    setEditingRecipient(null);
+                    setNewRecipient({ full_name: "", email: "", phone: "", relationship: "" });
+                  }}
+                  className="p-2 hover:bg-secondary rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto pr-2">
+                {/* Recipients List */}
+                <div className="space-y-3 mb-6">
+                  {recipients.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground">No recipients added yet.</p>
+                    </div>
+                  ) : (
+                    recipients.map((recipient) => (
+                      <div key={recipient.id} className="card-elevated p-4">
+                        <div className="flex items-start gap-4">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-navy to-navy-light flex items-center justify-center text-primary-foreground font-semibold">
+                            {recipient.full_name.charAt(0)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="font-semibold text-foreground">{recipient.full_name}</h3>
+                              {recipient.relationship && (
+                                <span className="px-2 py-0.5 rounded-full bg-secondary text-xs font-medium text-secondary-foreground">
+                                  {recipient.relationship}
+                                </span>
+                              )}
+                              {recipient.is_verified && (
+                                <span className="px-2 py-0.5 rounded-full bg-sage text-xs font-medium text-foreground flex items-center gap-1">
+                                  <Check className="w-3 h-3" />
+                                  Verified
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-3 text-sm text-muted-foreground mb-2">
+                              {recipient.email && (
+                                <span className="flex items-center gap-1">
+                                  <Mail className="w-3 h-3" />
+                                  {recipient.email}
+                                </span>
+                              )}
+                              {recipient.phone && (
+                                <span className="flex items-center gap-1">
+                                  <Phone className="w-3 h-3" />
+                                  {recipient.phone}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {recipient.email && !recipient.is_verified && (
+                              <button
+                                onClick={() => handleSendVerificationEmail(recipient.id)}
+                                className="p-2 hover:bg-secondary rounded-lg transition-colors"
+                                title="Send verification email"
+                              >
+                                <Mail className="w-4 h-4 text-gold" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleEditRecipient(recipient)}
+                              className="p-2 hover:bg-secondary rounded-lg transition-colors"
+                              title="Edit recipient"
+                            >
+                              <Edit2 className="w-4 h-4 text-muted-foreground" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteRecipient(recipient.id)}
+                              className="p-2 hover:bg-destructive/10 rounded-lg transition-colors"
+                              title="Delete recipient"
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Add/Edit Recipient Form */}
+                <div className="border-t border-border pt-4">
+                  <h3 className="font-semibold text-foreground mb-4">
+                    {editingRecipient ? "Edit Recipient" : "Add New Recipient"}
+                  </h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">Full Name *</label>
+                      <Input
+                        type="text"
+                        value={newRecipient.full_name}
+                        onChange={(e) => setNewRecipient({ ...newRecipient, full_name: e.target.value })}
+                        placeholder="John Smith"
+                        className="input-elevated"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">Email</label>
+                      <Input
+                        type="email"
+                        value={newRecipient.email}
+                        onChange={(e) => setNewRecipient({ ...newRecipient, email: e.target.value })}
+                        placeholder="john@example.com"
+                        className="input-elevated"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">Phone</label>
+                      <Input
+                        type="tel"
+                        value={newRecipient.phone}
+                        onChange={(e) => setNewRecipient({ ...newRecipient, phone: e.target.value })}
+                        placeholder="+1 (555) 123-4567"
+                        className="input-elevated"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">Relationship</label>
+                      <select
+                        value={newRecipient.relationship}
+                        onChange={(e) => setNewRecipient({ ...newRecipient, relationship: e.target.value })}
+                        className="input-elevated"
+                      >
+                        <option value="">Select relationship...</option>
+                        {relationships.map((rel) => (
+                          <option key={rel} value={rel}>
+                            {rel}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6 pt-4 border-t border-border">
+                <Button
+                  variant="ghost"
+                  className="flex-1"
+                  onClick={() => {
+                    setShowRecipientsModal(false);
+                    setEditingRecipient(null);
+                    setNewRecipient({ full_name: "", email: "", phone: "", relationship: "" });
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="gold"
+                  className="flex-1"
+                  onClick={handleSaveRecipient}
+                  disabled={saving || !newRecipient.full_name.trim()}
+                >
+                  {saving ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : editingRecipient ? (
+                    "Update Recipient"
+                  ) : (
+                    "Add Recipient"
+                  )}
+                </Button>
+              </div>
             </motion.div>
           </motion.div>
         )}

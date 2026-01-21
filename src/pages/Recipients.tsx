@@ -21,6 +21,8 @@ import Header from "@/components/layout/Header";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
+import { validateName, validateEmail, validatePhone, validateRelationship } from "@/lib/validation";
 
 interface Recipient {
   id: string;
@@ -33,10 +35,12 @@ interface Recipient {
 
 const Recipients = () => {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingRecipient, setEditingRecipient] = useState<Recipient | null>(null);
   const [newRecipient, setNewRecipient] = useState({
     full_name: "",
     email: "",
@@ -44,7 +48,15 @@ const Recipients = () => {
     relationship: "",
   });
 
-  const relationships = ["Spouse", "Child", "Sibling", "Parent", "Friend", "Charity", "Other"];
+  const relationships = [
+    t("recipients.spouse"),
+    t("recipients.child"),
+    t("recipients.sibling"),
+    t("recipients.parent"),
+    t("recipients.friend"),
+    t("recipients.charity"),
+    t("recipients.other"),
+  ];
 
   useEffect(() => {
     if (user) fetchRecipients();
@@ -61,43 +73,188 @@ const Recipients = () => {
       if (data) setRecipients(data);
     } catch (error) {
       console.error("Error fetching recipients:", error);
-      toast.error("Failed to load recipients");
+      toast.error(t("recipients.failedToLoad"));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddRecipient = async () => {
-    if (!newRecipient.full_name || !user) {
-      toast.error("Please enter a name");
+  const sendVerificationEmail = async (recipientId: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("Not authenticated");
+      }
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-verification-email`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ recipientId }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to send verification email");
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Error sending verification email:", error);
+      throw error;
+    }
+  };
+
+  const handleEditRecipient = (recipient: Recipient) => {
+    setEditingRecipient(recipient);
+    setNewRecipient({
+      full_name: recipient.full_name,
+      email: recipient.email || "",
+      phone: recipient.phone || "",
+      relationship: recipient.relationship || "",
+    });
+    setShowAddModal(true);
+  };
+
+  const handleSaveRecipient = async () => {
+    if (!user) {
+      toast.error("Please log in to save recipients");
       return;
+    }
+
+    // Validate full name
+    const nameValidation = validateName(newRecipient.full_name);
+    if (!nameValidation.isValid) {
+      toast.error(nameValidation.error || t("recipients.pleaseEnterName"));
+      return;
+    }
+
+    // Validate email if provided
+    let emailValue = null;
+    if (newRecipient.email && newRecipient.email.trim()) {
+      const emailValidation = validateEmail(newRecipient.email);
+      if (!emailValidation.isValid) {
+        toast.error(emailValidation.error || "Please enter a valid email address");
+        return;
+      }
+      emailValue = emailValidation.sanitized;
+    }
+
+    // Validate phone if provided
+    let phoneValue = null;
+    if (newRecipient.phone && newRecipient.phone.trim()) {
+      const phoneValidation = validatePhone(newRecipient.phone);
+      if (!phoneValidation.isValid) {
+        toast.error(phoneValidation.error || "Please enter a valid phone number");
+        return;
+      }
+      phoneValue = phoneValidation.sanitized;
+    }
+
+    // Validate relationship if provided
+    let relationshipValue = null;
+    if (newRecipient.relationship && newRecipient.relationship.trim()) {
+      const relationshipValidation = validateRelationship(newRecipient.relationship);
+      if (!relationshipValidation.isValid) {
+        toast.error(relationshipValidation.error || "Invalid relationship");
+        return;
+      }
+      relationshipValue = relationshipValidation.sanitized;
     }
 
     setSaving(true);
     try {
-      const { data, error } = await supabase
-        .from("recipients")
-        .insert({
-          user_id: user.id,
-          full_name: newRecipient.full_name,
-          email: newRecipient.email || null,
-          phone: newRecipient.phone || null,
-          relationship: newRecipient.relationship || null,
-        })
-        .select()
-        .single();
+      if (editingRecipient) {
+        // Update existing recipient
+        const updateData: any = {
+          full_name: nameValidation.sanitized,
+          email: emailValue,
+          phone: phoneValue,
+          relationship: relationshipValue,
+        };
 
-      if (error) throw error;
-      
-      setRecipients([data, ...recipients]);
+        // Note: Verification code generation and hashing is handled by send-verification-email function
+        // We don't need to generate codes here anymore
+
+        const { data, error } = await supabase
+          .from("recipients")
+          .update(updateData)
+          .eq("id", editingRecipient.id)
+          .select()
+          .single();
+
+        if (error) throw error;
+        
+        setRecipients(recipients.map(r => r.id === editingRecipient.id ? data : r));
+        toast.success(t("recipients.recipientUpdated") || "Recipient updated successfully");
+
+        // Send verification email if email changed and wasn't verified
+        if (emailValue && emailValue !== editingRecipient.email && !editingRecipient.is_verified && data.id) {
+          try {
+            await sendVerificationEmail(data.id);
+            toast.success(t("recipients.verificationEmailSent"));
+          } catch (error) {
+            console.error("Error sending verification email:", error);
+            toast.error(t("recipients.failedToSendVerificationEmail"));
+          }
+        }
+      } else {
+        // Add new recipient
+        // Note: Verification code generation and hashing is handled by send-verification-email function
+        // We don't need to generate codes here anymore
+
+        const { data, error } = await supabase
+          .from("recipients")
+          .insert({
+            user_id: user.id,
+            full_name: nameValidation.sanitized,
+            email: emailValue,
+            phone: phoneValue,
+            relationship: relationshipValue,
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        
+        setRecipients([data, ...recipients]);
+        toast.success(t("recipients.recipientAdded"));
+
+        // Send verification email if email is provided
+        if (emailValue && data.id) {
+          try {
+            await sendVerificationEmail(data.id);
+            toast.success(t("recipients.verificationEmailSent"));
+          } catch (error) {
+            console.error("Error sending verification email:", error);
+            toast.error(t("recipients.failedToSendVerificationEmail"));
+          }
+        }
+      }
+
       setNewRecipient({ full_name: "", email: "", phone: "", relationship: "" });
+      setEditingRecipient(null);
       setShowAddModal(false);
-      toast.success("Recipient added successfully");
     } catch (error) {
-      console.error("Error adding recipient:", error);
-      toast.error("Failed to add recipient");
+      console.error("Error saving recipient:", error);
+      toast.error(editingRecipient ? (t("recipients.failedToUpdate") || "Failed to update recipient") : t("recipients.failedToAdd"));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSendVerificationEmail = async (recipientId: string) => {
+    try {
+      await sendVerificationEmail(recipientId);
+      toast.success(t("recipients.verificationEmailSent"));
+    } catch (error) {
+      console.error("Error sending verification email:", error);
+      toast.error(t("recipients.failedToSendVerificationEmail"));
     }
   };
 
@@ -107,10 +264,10 @@ const Recipients = () => {
       if (error) throw error;
       
       setRecipients(recipients.filter((r) => r.id !== id));
-      toast.success("Recipient removed");
+      toast.success(t("recipients.recipientRemoved"));
     } catch (error) {
       console.error("Error deleting recipient:", error);
-      toast.error("Failed to remove recipient");
+      toast.error(t("recipients.failedToRemove"));
     }
   };
 
@@ -134,7 +291,7 @@ const Recipients = () => {
           {/* Back Button */}
           <Link to="/assets" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-6">
             <ArrowLeft className="w-4 h-4" />
-            Back to Assets
+            {t("recipients.backToAssets")}
           </Link>
 
           {/* Progress Indicator */}
@@ -156,12 +313,12 @@ const Recipients = () => {
             className="flex items-center justify-between mb-8"
           >
             <div>
-              <h1 className="heading-section text-foreground mb-2">Add Recipients</h1>
-              <p className="text-muted-foreground">Specify who will receive your assets and messages.</p>
+              <h1 className="heading-section text-foreground mb-2">{t("recipients.addRecipients")}</h1>
+              <p className="text-muted-foreground">{t("recipients.specifyWhoReceives")}</p>
             </div>
             <Button variant="gold" className="gap-2" onClick={() => setShowAddModal(true)}>
               <UserPlus className="w-4 h-4" />
-              Add Recipient
+              {t("recipients.addRecipient")}
             </Button>
           </motion.div>
 
@@ -189,7 +346,7 @@ const Recipients = () => {
                       {recipient.is_verified && (
                         <span className="px-2 py-0.5 rounded-full bg-sage text-xs font-medium text-foreground flex items-center gap-1">
                           <Check className="w-3 h-3" />
-                          Verified
+                          {t("recipients.verified")}
                         </span>
                       )}
                     </div>
@@ -209,12 +366,20 @@ const Recipients = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {!recipient.is_verified && (
-                      <Button variant="outline" size="sm">
-                        Send Invite
+                    {!recipient.is_verified && recipient.email && (
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => handleSendVerificationEmail(recipient.id)}
+                      >
+                        <Mail className="w-4 h-4 mr-1" />
+                        {t("recipients.sendVerification")}
                       </Button>
                     )}
-                    <button className="p-2 hover:bg-secondary rounded-lg transition-colors">
+                    <button 
+                      className="p-2 hover:bg-secondary rounded-lg transition-colors"
+                      onClick={() => handleEditRecipient(recipient)}
+                    >
                       <Edit2 className="w-4 h-4 text-muted-foreground" />
                     </button>
                     <button 
@@ -231,11 +396,11 @@ const Recipients = () => {
             {recipients.length === 0 && (
               <div className="card-elevated text-center py-12">
                 <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="font-serif text-xl font-semibold text-foreground mb-2">No recipients yet</h3>
-                <p className="text-muted-foreground mb-4">Add the people who will receive your legacy.</p>
+                <h3 className="font-serif text-xl font-semibold text-foreground mb-2">{t("recipients.noRecipientsYet")}</h3>
+                <p className="text-muted-foreground mb-4">{t("recipients.addPeopleWhoReceive")}</p>
                 <Button variant="gold" onClick={() => setShowAddModal(true)} className="gap-2">
                   <UserPlus className="w-4 h-4" />
-                  Add Your First Recipient
+                  {t("recipients.addYourFirstRecipient")}
                 </Button>
               </div>
             )}
@@ -251,17 +416,17 @@ const Recipients = () => {
             <Link to="/assets">
               <Button variant="ghost" className="gap-2">
                 <ArrowLeft className="w-4 h-4" />
-                Back
+                {t("common.back")}
               </Button>
             </Link>
             <div className="flex items-center gap-4">
               <p className="text-sm text-muted-foreground flex items-center gap-2">
                 <Shield className="w-4 h-4" />
-                Secure & Encrypted
+                {t("common.secure") || "Secure & Encrypted"}
               </p>
               <Link to="/review">
                 <Button variant="gold" className="gap-2">
-                  Review & Finalize
+                  {t("wills.reviewWill")}
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
@@ -288,48 +453,61 @@ const Recipients = () => {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-6">
-                <h2 className="font-serif text-xl font-semibold text-foreground">Add Recipient</h2>
-                <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-secondary rounded-lg">
+                <h2 className="font-serif text-xl font-semibold text-foreground">
+                  {editingRecipient ? (t("recipients.editRecipient") || "Edit Recipient") : t("recipients.addRecipient")}
+                </h2>
+                <button 
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setEditingRecipient(null);
+                    setNewRecipient({ full_name: "", email: "", phone: "", relationship: "" });
+                  }} 
+                  className="p-2 hover:bg-secondary rounded-lg"
+                >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Full Name</label>
+                  <label className="block text-sm font-medium text-foreground mb-2">{t("recipients.fullName")}</label>
                   <input
                     type="text"
                     value={newRecipient.full_name}
                     onChange={(e) => setNewRecipient({ ...newRecipient, full_name: e.target.value })}
                     placeholder="e.g., John Smith"
                     className="input-elevated"
+                    maxLength={100}
+                    required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Email Address (Optional)</label>
+                  <label className="block text-sm font-medium text-foreground mb-2">{t("recipients.email")} ({t("common.optional") || "Optional"})</label>
                   <input
                     type="email"
                     value={newRecipient.email}
                     onChange={(e) => setNewRecipient({ ...newRecipient, email: e.target.value })}
                     placeholder="e.g., john@email.com"
                     className="input-elevated"
+                    maxLength={255}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Phone (Optional)</label>
+                  <label className="block text-sm font-medium text-foreground mb-2">{t("recipients.phone")} ({t("common.optional") || "Optional"})</label>
                   <input
                     type="tel"
                     value={newRecipient.phone}
                     onChange={(e) => setNewRecipient({ ...newRecipient, phone: e.target.value })}
                     placeholder="e.g., +1 555-0123"
                     className="input-elevated"
+                    maxLength={20}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-foreground mb-2">Relationship</label>
+                  <label className="block text-sm font-medium text-foreground mb-2">{t("recipients.relationship")}</label>
                   <div className="flex flex-wrap gap-2">
                     {relationships.map((rel) => (
                       <button
@@ -349,11 +527,23 @@ const Recipients = () => {
               </div>
 
               <div className="flex gap-3 mt-6">
-                <Button variant="ghost" className="flex-1" onClick={() => setShowAddModal(false)}>
-                  Cancel
+                <Button 
+                  variant="ghost" 
+                  className="flex-1" 
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setEditingRecipient(null);
+                    setNewRecipient({ full_name: "", email: "", phone: "", relationship: "" });
+                  }}
+                >
+                  {t("common.cancel")}
                 </Button>
-                <Button variant="gold" className="flex-1" onClick={handleAddRecipient} disabled={saving}>
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add Recipient"}
+                <Button variant="gold" className="flex-1" onClick={handleSaveRecipient} disabled={saving}>
+                  {saving ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    editingRecipient ? (t("recipients.updateRecipient") || "Update Recipient") : t("recipients.addRecipient")
+                  )}
                 </Button>
               </div>
             </motion.div>

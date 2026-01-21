@@ -6,12 +6,16 @@ import { Shield, Lock, Eye, EyeOff, ArrowRight, Loader2, CheckCircle } from "luc
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { z } from "zod";
+import { MIN_LENGTHS } from "@/lib/validation";
+import { validatePasswordSecurity } from "@/lib/passwordSecurity";
+import { useTranslation } from "react-i18next";
 
-const passwordSchema = z.string().min(6, { message: "Password must be at least 6 characters" });
+const passwordSchema = z.string().min(MIN_LENGTHS.PASSWORD, { message: `Password must be at least ${MIN_LENGTHS.PASSWORD} characters` });
 
 const ResetPassword = () => {
   const navigate = useNavigate();
   const { updatePassword } = useAuth();
+  const { t } = useTranslation();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -29,13 +33,55 @@ const ResetPassword = () => {
     }
 
     if (password !== confirmPassword) {
-      toast.error("Passwords do not match");
+      toast.error(t("resetPassword.passwordsDoNotMatch") || "Passwords do not match");
       return;
     }
 
     setLoading(true);
 
     try {
+      // Check password security including leaked password check
+      const passwordValidation = await validatePasswordSecurity(password, {
+        checkLeaked: true,
+        minLength: MIN_LENGTHS.PASSWORD,
+        requireUppercase: true,
+        requireLowercase: true,
+        requireNumber: true,
+        requireSpecial: true,
+      });
+
+      if (!passwordValidation.isValid) {
+        // Show first error (most important)
+        const errorMessage = passwordValidation.errors[0];
+        
+        // Use specific translation keys for leaked passwords
+        if (passwordValidation.isLeaked) {
+          if (passwordValidation.leakCount && passwordValidation.leakCount > 1000) {
+            toast.error(t("resetPassword.passwordLeakedMultiple") || errorMessage);
+          } else {
+            toast.error(t("resetPassword.passwordLeaked") || errorMessage);
+          }
+        } else {
+          // Map common errors to translation keys or show generic error
+          if (errorMessage.includes("at least 8 characters")) {
+            toast.error(t("login.passwordMinLength") || errorMessage);
+          } else if (errorMessage.includes("uppercase")) {
+            toast.error(t("login.passwordRuleUppercase") || errorMessage);
+          } else if (errorMessage.includes("lowercase")) {
+            toast.error(t("login.passwordRuleLowercase") || errorMessage);
+          } else if (errorMessage.includes("number")) {
+            toast.error(t("login.passwordRuleNumber") || errorMessage);
+          } else if (errorMessage.includes("special")) {
+            toast.error(t("login.passwordRuleSpecial") || errorMessage);
+          } else {
+            toast.error(errorMessage);
+          }
+        }
+        
+        setLoading(false);
+        return;
+      }
+
       const { error } = await updatePassword(password);
       if (error) {
         toast.error(error.message);
@@ -46,7 +92,7 @@ const ResetPassword = () => {
         }, 2000);
       }
     } catch (err) {
-      toast.error("An unexpected error occurred");
+      toast.error(t("resetPassword.unexpectedError") || "An unexpected error occurred");
     } finally {
       setLoading(false);
     }
@@ -91,7 +137,7 @@ const ResetPassword = () => {
               {/* Header */}
               <h1 className="heading-section text-foreground mb-2">Set New Password</h1>
               <p className="text-muted-foreground mb-8">
-                Your new password must be at least 6 characters long.
+                Your new password must be at least 8 characters long.
               </p>
 
               {/* Form */}
