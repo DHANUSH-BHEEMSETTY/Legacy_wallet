@@ -19,13 +19,14 @@ import Header from "@/components/layout/Header";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { validateMessage, sanitizeInput } from "@/lib/validation";
 
 type Message = { role: "user" | "assistant"; content: string };
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/will-chat`;
 
 const CreateChatWill = () => {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -72,9 +73,16 @@ const CreateChatWill = () => {
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || isLoading) return;
+    if (isLoading) return;
 
-    const userMsg: Message = { role: "user", content: input.trim() };
+    // Validate and sanitize message
+    const messageValidation = validateMessage(input);
+    if (!messageValidation.isValid) {
+      toast.error(messageValidation.error || "Invalid message");
+      return;
+    }
+
+    const userMsg: Message = { role: "user", content: messageValidation.sanitized };
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     setInput("");
@@ -112,11 +120,16 @@ const CreateChatWill = () => {
     onDelta: (deltaText: string) => void;
     onDone: () => void;
   }) => {
+    // Get the user's access token from the session
+    if (!session?.access_token) {
+      throw new Error("Not authenticated. Please sign in to continue.");
+    }
+
     const resp = await fetch(CHAT_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        Authorization: `Bearer ${session.access_token}`,
       },
       body: JSON.stringify({ messages }),
     });
@@ -190,9 +203,12 @@ const CreateChatWill = () => {
 
     setIsSaving(true);
     try {
-      // Create transcript from conversation
+      // Create transcript from conversation (sanitize user messages)
       const transcript = messages
-        .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+        .map((m) => {
+          const content = m.role === "user" ? sanitizeInput(m.content) : m.content;
+          return `${m.role === "user" ? "User" : "Assistant"}: ${content}`;
+        })
         .join("\n\n");
 
       // Check for existing chat will
@@ -370,6 +386,7 @@ const CreateChatWill = () => {
                       placeholder="Type your response..."
                       disabled={isLoading}
                       className="flex-1"
+                      maxLength={5000}
                     />
                     <Button
                       onClick={sendMessage}

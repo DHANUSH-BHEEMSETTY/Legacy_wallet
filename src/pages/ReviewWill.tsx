@@ -189,19 +189,49 @@ const ReviewWill = () => {
   ];
 
   const handleSubmit = async () => {
-    if (!will) {
+    if (!will || !user) {
       toast.error("Please create a will before finalizing");
       return;
     }
 
     setIsSubmitting(true);
     try {
+      // Update will status to completed
       const { error } = await supabase
         .from("wills")
         .update({ status: "completed" })
         .eq("id", will.id);
 
       if (error) throw error;
+
+      // Send email notifications to recipients
+      try {
+        const { data, error: notifyError } = await supabase.functions.invoke("notify-recipients", {
+          body: {
+            willId: will.id,
+            userId: user.id,
+          },
+        });
+
+        if (notifyError) {
+          console.error("Error sending notifications:", notifyError);
+          // Don't block navigation if email sending fails
+          toast.warning("Will finalized, but some email notifications may not have been sent");
+        } else if (data) {
+          if (data.sent > 0) {
+            toast.success(`Will finalized! Notifications sent to ${data.sent} recipient(s)`);
+          } else if (data.total === 0) {
+            toast.success("Will finalized! No recipients with email addresses found");
+          } else {
+            toast.warning("Will finalized, but email notifications failed to send");
+          }
+        }
+      } catch (notifyErr) {
+        console.error("Error calling notification function:", notifyErr);
+        // Don't block navigation if email sending fails
+        toast.warning("Will finalized, but email notifications could not be sent");
+      }
+
       navigate("/confirmation");
     } catch (error) {
       console.error("Error finalizing will:", error);
@@ -373,7 +403,7 @@ const ReviewWill = () => {
                                       <div className="flex flex-wrap gap-1">
                                         {assetAllocations.map((a) => (
                                           <span key={a.id} className="px-2 py-0.5 rounded-full bg-secondary text-xs">
-                                            {getRecipientName(a.recipient_id)}: {a.allocation_percentage}%
+                                            {getRecipientName(a.recipient_id)}
                                           </span>
                                         ))}
                                       </div>

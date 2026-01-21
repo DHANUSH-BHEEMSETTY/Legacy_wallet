@@ -1,52 +1,54 @@
 import { motion } from "framer-motion";
 import { UserPlus, FileEdit, Share2, Shield } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 const HowItWorksSection = () => {
+  const { t } = useTranslation();
   const steps = [
     {
       number: "01",
       icon: UserPlus,
-      title: "Create Your Account",
-      description: "Sign up securely with email, phone, or your favorite social account. Your data is protected from day one.",
+      title: t("howItWorks.step1Title"),
+      description: t("howItWorks.step1Description"),
     },
     {
       number: "02",
       icon: FileEdit,
-      title: "Record Your Wishes",
-      description: "Choose audio, video, or chat to express your final wishes. Our AI helps organize and structure everything.",
+      title: t("howItWorks.step2Title"),
+      description: t("howItWorks.step2Description"),
     },
     {
       number: "03",
       icon: Share2,
-      title: "Assign Recipients",
-      description: "Add beneficiaries and specify what each person receives. Set conditions and delivery preferences.",
+      title: t("howItWorks.step3Title"),
+      description: t("howItWorks.step3Description"),
     },
     {
       number: "04",
       icon: Shield,
-      title: "Secure & Share",
-      description: "Your will is encrypted and stored securely. Recipients are notified when the time comes.",
+      title: t("howItWorks.step4Title"),
+      description: t("howItWorks.step4Description"),
     },
   ];
 
   return (
-    <section className="py-20 md:py-32">
+    <section className="py-12 md:py-16">
       <div className="container mx-auto px-4">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="text-center max-w-2xl mx-auto mb-16"
+          className="text-center max-w-2xl mx-auto mb-10"
         >
           <span className="text-gold font-medium text-sm uppercase tracking-wider mb-4 block">
-            How It Works
+            {t("howItWorks.title")}
           </span>
           <h2 className="heading-section text-foreground mb-4">
-            Create Your Will in Minutes
+            {t("howItWorks.subtitle")}
           </h2>
           <p className="body-large">
-            A simple four-step process designed to be completed in under 10 minutes.
+            {t("howItWorks.description")}
           </p>
         </motion.div>
 

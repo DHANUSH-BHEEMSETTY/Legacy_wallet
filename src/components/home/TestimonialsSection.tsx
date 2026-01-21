@@ -1,46 +1,48 @@
 import { motion } from "framer-motion";
 import { Star, Quote } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 const TestimonialsSection = () => {
+  const { t } = useTranslation();
   const testimonials = [
     {
-      name: "Margaret Thompson",
-      role: "Retired Teacher",
-      content: "LegacyVault gave me peace of mind I didn't know I was missing. Recording my wishes through video felt so personal and meaningful.",
+      name: t("testimonials.testimonial1Name"),
+      role: t("testimonials.testimonial1Role"),
+      content: t("testimonials.testimonial1Content"),
       rating: 5,
     },
     {
-      name: "David Chen",
-      role: "Business Owner",
-      content: "Managing assets across different categories was seamless. The interface is intuitive, and the security features are top-notch.",
+      name: t("testimonials.testimonial2Name"),
+      role: t("testimonials.testimonial2Role"),
+      content: t("testimonials.testimonial2Content"),
       rating: 5,
     },
     {
-      name: "Sarah Williams",
-      role: "Financial Advisor",
-      content: "I recommend LegacyVault to all my clients. It's the most comprehensive yet accessible digital will platform I've seen.",
+      name: t("testimonials.testimonial3Name"),
+      role: t("testimonials.testimonial3Role"),
+      content: t("testimonials.testimonial3Content"),
       rating: 5,
     },
   ];
 
   return (
-    <section className="py-20 md:py-32 bg-primary text-primary-foreground">
+    <section className="py-12 md:py-16 bg-primary text-primary-foreground">
       <div className="container mx-auto px-4">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          className="text-center max-w-2xl mx-auto mb-16"
+          className="text-center max-w-2xl mx-auto mb-10"
         >
           <span className="text-gold font-medium text-sm uppercase tracking-wider mb-4 block">
-            Testimonials
+            {t("testimonials.title")}
           </span>
           <h2 className="heading-section mb-4">
-            Trusted by Families Everywhere
+            {t("testimonials.subtitle")}
           </h2>
           <p className="text-primary-foreground/70 text-lg">
-            See why thousands have chosen LegacyVault to secure their legacy.
+            {t("testimonials.description")}
           </p>
         </motion.div>
 

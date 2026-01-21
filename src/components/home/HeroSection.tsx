@@ -2,16 +2,68 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Shield, Lock, CheckCircle, Play } from "lucide-react";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
+import { useState, useEffect } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const HeroSection = () => {
+  const { t } = useTranslation();
+  const [displayedText, setDisplayedText] = useState("");
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [showCursor, setShowCursor] = useState(true);
+  const [showVideoDialog, setShowVideoDialog] = useState(false);
+
+  const fullText = `${t("hero.yourLegacy")} ${t("hero.securedForever")}`;
+  const goldText = t("hero.securedForever");
+  const regularText = t("hero.yourLegacy");
+
+  useEffect(() => {
+    if (currentIndex < fullText.length) {
+      const timeout = setTimeout(() => {
+        setDisplayedText(fullText.slice(0, currentIndex + 1));
+        setCurrentIndex(currentIndex + 1);
+      }, 100); // Typing speed
+      return () => clearTimeout(timeout);
+    }
+  }, [currentIndex, fullText]);
+
+  // Cursor blinking effect
+  useEffect(() => {
+    const cursorInterval = setInterval(() => {
+      setShowCursor((prev) => !prev);
+    }, 530);
+    return () => clearInterval(cursorInterval);
+  }, []);
+
+  // Split the displayed text to highlight the gold part
+  const getDisplayedParts = () => {
+    if (displayedText.length <= regularText.length) {
+      return {
+        regular: displayedText,
+        gold: "",
+      };
+    }
+    return {
+      regular: regularText,
+      gold: displayedText.slice(regularText.length + 1), // +1 for space
+    };
+  };
+
+  const parts = getDisplayedParts();
   const trustBadges = [
-    { icon: Lock, text: "End-to-End Encrypted" },
-    { icon: Shield, text: "GDPR Compliant" },
-    { icon: CheckCircle, text: "Bank-Level Security" },
+    { icon: Lock, text: t("hero.endToEndEncrypted") },
+    { icon: Shield, text: t("hero.gdprCompliant") },
+    { icon: CheckCircle, text: t("hero.bankLevelSecurity") },
   ];
 
   return (
-    <section className="relative min-h-[90vh] flex items-center pt-20 overflow-hidden">
+    <section className="relative min-h-[70vh] flex items-center pt-28 md:pt-32 pb-12 overflow-hidden">
       {/* Background gradient */}
       <div className="absolute inset-0 bg-gradient-to-br from-background via-secondary/30 to-sage/20" />
       
@@ -19,133 +71,118 @@ const HeroSection = () => {
       <div className="absolute top-1/4 right-0 w-96 h-96 bg-gold/10 rounded-full blur-3xl" />
       <div className="absolute bottom-0 left-0 w-80 h-80 bg-sage/20 rounded-full blur-3xl" />
 
-      <div className="container mx-auto px-4 relative z-10">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
-          {/* Left Content */}
+      <div className="container mx-auto px-4 relative z-10 w-full">
+        <div className="max-w-4xl mx-auto w-full">
+          {/* Centered Content */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
-            className="text-center lg:text-left"
+            className="text-center w-full flex flex-col items-center pt-8"
           >
             {/* Trust Badge */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-sage/50 text-sm font-medium text-foreground mb-6"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-sage/90 border border-gold/40 text-sm font-semibold text-foreground mb-6 shadow-md backdrop-blur-sm"
             >
-              <Shield className="w-4 h-4 text-gold" />
-              Trusted by 50,000+ families
+              <Shield className="w-4 h-4 text-gold flex-shrink-0" />
+              <span className="whitespace-nowrap">{t("hero.trustedBy")}</span>
             </motion.div>
 
-            <h1 className="heading-display text-foreground mb-6">
-              Your Legacy,{" "}
-              <span className="text-gold">Secured Forever</span>
-            </h1>
-
-            <p className="body-large mb-8 max-w-xl mx-auto lg:mx-0">
-              Create, manage, and share your digital will with complete peace of mind. 
-              Record your last wishes via audio, video, or chat—all encrypted and legally guided.
-            </p>
-
-            {/* CTA Buttons */}
-            <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start mb-8">
-              <Link to="/dashboard">
-                <Button variant="hero" size="xl">
-                  Start Your Will
-                </Button>
-              </Link>
-              <Button variant="hero-outline" size="xl" className="gap-2">
-                <Play className="w-5 h-5" />
-                Watch Demo
-              </Button>
+            {/* Typewriter Heading */}
+            <div className="mb-4 min-h-[120px] flex items-center justify-center">
+              <h1 className="heading-display text-foreground text-center">
+                <span className="inline-block">
+                  {parts.regular}
+                  {parts.regular.length > 0 && parts.gold.length === 0 && " "}
+                  {parts.gold && <span className="text-gold">{parts.gold}</span>}
+                  {currentIndex < fullText.length && (
+                    <span className={`inline-block w-0.5 h-8 bg-gold ml-1 align-middle ${showCursor ? 'opacity-100' : 'opacity-0'}`} />
+                  )}
+                </span>
+              </h1>
             </div>
 
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: (fullText.length * 100) / 1000 + 0.5 }}
+              className="body-large mb-6 max-w-2xl mx-auto text-center"
+            >
+              {t("hero.createManageShare")}
+            </motion.p>
+
+            {/* CTA Buttons */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: (fullText.length * 100) / 1000 + 0.7 }}
+              className="flex flex-col sm:flex-row gap-4 justify-center mb-6"
+            >
+              <Link to="/dashboard">
+                <Button variant="hero" size="xl">
+                  {t("hero.startYourWill")}
+                </Button>
+              </Link>
+              <Button 
+                variant="hero-outline" 
+                size="xl" 
+                className="gap-2"
+                onClick={() => setShowVideoDialog(true)}
+              >
+                <Play className="w-5 h-5" />
+                {t("hero.watchDemo")}
+              </Button>
+            </motion.div>
+
             {/* Trust Badges */}
-            <div className="flex flex-wrap justify-center lg:justify-start gap-4">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: (fullText.length * 100) / 1000 + 0.9 }}
+              className="flex flex-wrap justify-center gap-4"
+            >
               {trustBadges.map((badge, index) => (
                 <motion.div
                   key={badge.text}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 + index * 0.1 }}
+                  transition={{ delay: (fullText.length * 100) / 1000 + 1.1 + index * 0.1 }}
                   className="trust-badge"
                 >
                   <badge.icon className="w-4 h-4 text-gold" />
                   {badge.text}
                 </motion.div>
               ))}
-            </div>
-          </motion.div>
-
-          {/* Right Content - Preview Card */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
-            className="relative"
-          >
-            <div className="card-elevated p-8 relative">
-              {/* Decorative corner */}
-              <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-gold/20 to-transparent rounded-tr-xl" />
-              
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gold to-gold-light flex items-center justify-center">
-                  <Shield className="w-6 h-6 text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-serif font-semibold text-foreground">My Digital Will</h3>
-                  <p className="text-sm text-muted-foreground">Last updated: Today</p>
-                </div>
-              </div>
-
-              {/* Progress Indicator */}
-              <div className="mb-6">
-                <div className="flex justify-between text-sm mb-2">
-                  <span className="text-muted-foreground">Completion</span>
-                  <span className="font-medium text-foreground">75%</span>
-                </div>
-                <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                  <div className="h-full w-3/4 bg-gradient-to-r from-gold to-gold-light rounded-full" />
-                </div>
-              </div>
-
-              {/* Quick Stats */}
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                {[
-                  { label: "Assets", value: "12" },
-                  { label: "Recipients", value: "5" },
-                  { label: "Messages", value: "3" },
-                ].map((stat) => (
-                  <div key={stat.label} className="text-center p-3 bg-secondary/50 rounded-lg">
-                    <p className="font-serif text-xl font-semibold text-foreground">{stat.value}</p>
-                    <p className="text-xs text-muted-foreground">{stat.label}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Action */}
-              <Button variant="navy" className="w-full">
-                Continue Editing
-              </Button>
-            </div>
-
-            {/* Floating Badge */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.6 }}
-              className="absolute -bottom-4 -left-4 bg-card border border-border rounded-xl p-4 shadow-medium"
-            >
-              <div className="flex items-center gap-2">
-                <Lock className="w-5 h-5 text-gold" />
-                <span className="text-sm font-medium">256-bit Encryption</span>
-              </div>
             </motion.div>
           </motion.div>
         </div>
       </div>
+
+      {/* Video Demo Dialog */}
+      <Dialog open={showVideoDialog} onOpenChange={setShowVideoDialog}>
+        <DialogContent className="max-w-4xl w-full p-0">
+          <DialogHeader className="px-6 pt-6 pb-4">
+            <DialogTitle>{t("hero.watchDemo")}</DialogTitle>
+            <DialogDescription>
+              {t("hero.demoDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="relative w-full aspect-video bg-black rounded-b-lg overflow-hidden">
+            <video
+              className="w-full h-full"
+              controls
+              autoPlay
+              onEnded={() => setShowVideoDialog(false)}
+            >
+              <source src="/Demo_Video_For_LegacyLink_Website.mp4" type="video/mp4" />
+              Your browser does not support the video tag.
+            </video>
+          </div>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 };

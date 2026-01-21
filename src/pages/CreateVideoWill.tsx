@@ -21,6 +21,7 @@ import Header from "@/components/layout/Header";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { validateVideoBlob } from "@/lib/fileValidation";
 
 const CreateVideoWill = () => {
   const { user } = useAuth();
@@ -169,13 +170,23 @@ const CreateVideoWill = () => {
       return;
     }
 
+    // Validate video blob before upload
+    const validation = await validateVideoBlob(recordedBlob, "video-will.webm");
+    if (!validation.isValid) {
+      toast.error(validation.error || "Invalid video file");
+      return;
+    }
+
     setIsSaving(true);
     try {
       // Upload video to storage
       const fileName = `${user.id}/video-will-${Date.now()}.webm`;
       const { error: uploadError } = await supabase.storage
         .from("asset-documents")
-        .upload(fileName, recordedBlob);
+        .upload(fileName, recordedBlob, {
+          contentType: "video/webm",
+          upsert: false,
+        });
 
       if (uploadError) throw uploadError;
 

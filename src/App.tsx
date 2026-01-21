@@ -9,6 +9,8 @@ import Index from "./pages/Index";
 import HowItWorks from "./pages/HowItWorks";
 import Pricing from "./pages/Pricing";
 import Payment from "./pages/Payment";
+import LearnMore from "./pages/LearnMore";
+import About from "./pages/About";
 import Dashboard from "./pages/Dashboard";
 import CreateWill from "./pages/CreateWill";
 import CreateAudioWill from "./pages/CreateAudioWill";
@@ -39,6 +41,8 @@ const App = () => (
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/payment" element={<Payment />} />
+            <Route path="/learn-more" element={<LearnMore />} />
+            <Route path="/about" element={<About />} />
             <Route path="/login" element={<Login />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />

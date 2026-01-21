@@ -5,25 +5,28 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 
 const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut, loading } = useAuth();
+  const { t } = useTranslation();
 
   const navLinks = [
-    { href: "/", label: "Home" },
-    { href: "/how-it-works", label: "How It Works" },
-    { href: "/pricing", label: "Pricing" },
-    { href: "/about", label: "About" },
+    { href: "/", label: t("header.home") },
+    { href: "/how-it-works", label: t("header.howItWorks") },
+    { href: "/pricing", label: t("header.pricing") },
+    { href: "/about", label: t("header.about") },
   ];
 
   const isActive = (path: string) => location.pathname === path;
 
   const handleSignOut = async () => {
     await signOut();
-    toast.success("Signed out successfully");
+    toast.success(t("common.signOutSuccess") || "Signed out successfully");
     navigate("/");
   };
 
@@ -56,6 +59,7 @@ const Header = () => {
                 {link.label}
               </Link>
             ))}
+            <LanguageSwitcher />
           </nav>
 
           {/* Desktop CTA */}
@@ -65,24 +69,24 @@ const Header = () => {
                 <Link to="/dashboard">
                   <Button variant="ghost" size="sm" className="gap-2">
                     <User className="w-4 h-4" />
-                    Dashboard
+                    {t("header.dashboard")}
                   </Button>
                 </Link>
                 <Button variant="outline" size="sm" onClick={handleSignOut} className="gap-2">
                   <LogOut className="w-4 h-4" />
-                  Sign Out
+                  {t("header.signOut")}
                 </Button>
               </>
             ) : (
               <>
                 <Link to="/login">
                   <Button variant="ghost" size="sm">
-                    Sign In
+                    {t("header.signIn")}
                   </Button>
                 </Link>
                 <Link to="/login">
                   <Button variant="gold" size="sm">
-                    Get Started
+                    {t("header.getStarted")}
                   </Button>
                 </Link>
               </>
@@ -127,13 +131,16 @@ const Header = () => {
                   {link.label}
                 </Link>
               ))}
+              <div className="py-2">
+                <LanguageSwitcher showText={true} />
+              </div>
               <div className="flex flex-col gap-2 pt-4 border-t border-border">
                 {!loading && user ? (
                   <>
                     <Link to="/dashboard" onClick={() => setMobileMenuOpen(false)}>
                       <Button variant="outline" className="w-full gap-2">
                         <User className="w-4 h-4" />
-                        Dashboard
+                        {t("header.dashboard")}
                       </Button>
                     </Link>
                     <Button 
@@ -145,19 +152,19 @@ const Header = () => {
                       }}
                     >
                       <LogOut className="w-4 h-4" />
-                      Sign Out
+                      {t("header.signOut")}
                     </Button>
                   </>
                 ) : (
                   <>
                     <Link to="/login" onClick={() => setMobileMenuOpen(false)}>
                       <Button variant="outline" className="w-full">
-                        Sign In
+                        {t("header.signIn")}
                       </Button>
                     </Link>
                     <Link to="/login" onClick={() => setMobileMenuOpen(false)}>
                       <Button variant="gold" className="w-full">
-                        Get Started
+                        {t("header.getStarted")}
                       </Button>
                     </Link>
                   </>

@@ -16,6 +16,8 @@ import {
   UserPlus,
   Shield,
   Loader2,
+  Upload,
+  Image as ImageIcon,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { useAuth } from "@/hooks/useAuth";
@@ -23,6 +25,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { validateName, validateEmail, validatePhone, validateRelationship } from "@/lib/validation";
+import { validateFileType, validateFileSize, ALLOWED_MIME_TYPES, ALLOWED_EXTENSIONS, MAX_FILE_SIZES } from "@/lib/fileValidation";
 
 interface Recipient {
   id: string;
@@ -31,6 +34,7 @@ interface Recipient {
   phone: string | null;
   relationship: string | null;
   is_verified: boolean;
+  image_url?: string | null;
 }
 
 const Recipients = () => {
@@ -47,6 +51,10 @@ const Recipients = () => {
     phone: "",
     relationship: "",
   });
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
 
   const relationships = [
     t("recipients.spouse"),
@@ -70,7 +78,39 @@ const Recipients = () => {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      if (data) setRecipients(data);
+      if (data) {
+        // Ensure all recipients have image_url (can be null)
+        const recipientsWithImage = data.map((r: any) => ({
+          id: r.id,
+          full_name: r.full_name,
+          email: r.email,
+          phone: r.phone,
+          relationship: r.relationship,
+          is_verified: r.is_verified,
+          image_url: r.image_url || null,
+        }));
+        setRecipients(recipientsWithImage);
+
+        // Generate signed URLs for all images
+        const urlPromises = recipientsWithImage
+          .filter(r => r.image_url)
+          .map(async (r) => {
+            try {
+              const url = await getRecipientImageUrl(r.image_url);
+              return { id: r.id, url };
+            } catch (error) {
+              console.error(`Error getting image URL for recipient ${r.id}:`, error);
+              return { id: r.id, url: null };
+            }
+          });
+
+        const urlResults = await Promise.all(urlPromises);
+        const urlMap: Record<string, string> = {};
+        urlResults.forEach(({ id, url }) => {
+          if (url) urlMap[id] = url;
+        });
+        setImageUrls(urlMap);
+      }
     } catch (error) {
       console.error("Error fetching recipients:", error);
       toast.error(t("recipients.failedToLoad"));
@@ -118,7 +158,141 @@ const Recipients = () => {
       phone: recipient.phone || "",
       relationship: recipient.relationship || "",
     });
+    setSelectedImage(null);
+    setImagePreview(recipient.image_url || null);
     setShowAddModal(true);
+  };
+
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate image file
+    const typeValidation = validateFileType(
+      file,
+      ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+      ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+    );
+    if (!typeValidation.isValid) {
+      toast.error(typeValidation.error || "Invalid image file type");
+      return;
+    }
+
+    // Validate file size (max 5MB for profile images)
+    const sizeValidation = validateFileSize(file, 5 * 1024 * 1024);
+    if (!sizeValidation.isValid) {
+      toast.error(sizeValidation.error || "Image file is too large (max 5MB)");
+      return;
+    }
+
+    setSelectedImage(file);
+    
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveImage = () => {
+    setSelectedImage(null);
+    setImagePreview(null);
+  };
+
+  const uploadRecipientImage = async (recipientId: string, file: File): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${recipientId}/profile-${Date.now()}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('asset-documents')
+        .upload(fileName, file, {
+          contentType: file.type,
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Generate signed URL (valid for 1 year) - more reliable than public URL
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from('asset-documents')
+        .createSignedUrl(fileName, 31536000); // 1 year expiry
+
+      if (signedError) {
+        console.error("Error generating signed URL:", signedError);
+        // Fallback to public URL if signed URL fails
+        const { data: publicUrlData } = supabase.storage
+          .from('asset-documents')
+          .getPublicUrl(fileName);
+        return publicUrlData.publicUrl;
+      }
+
+      return signedData?.signedUrl || null;
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      throw error;
+    }
+  };
+
+  // Get image URL - generates signed URL from stored URL or path
+  const getRecipientImageUrl = async (imageUrl: string | null | undefined): Promise<string | null> => {
+    if (!imageUrl) return null;
+
+    try {
+      // Extract file path from URL if it's a full URL
+      let filePath = imageUrl;
+      
+      if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+        // Try to extract path from public URL
+        const urlObj = new URL(imageUrl);
+        const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign)\/asset-documents\/(.+)/);
+        if (pathMatch) {
+          filePath = pathMatch[1];
+        } else {
+          // If it's a signed URL, try to extract from query params or use as-is
+          // For signed URLs, we can use them directly
+          return imageUrl;
+        }
+      }
+
+      // Generate signed URL (valid for 1 year)
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from('asset-documents')
+        .createSignedUrl(filePath, 31536000); // 1 year expiry
+      
+      if (signedError) {
+        console.error("Error generating signed URL:", signedError);
+        // If signed URL fails and we have a public URL, return it
+        if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+          return imageUrl;
+        }
+        return null;
+      }
+
+      return signedData?.signedUrl || null;
+    } catch (error) {
+      console.error("Error getting image URL:", error);
+      // Return original URL as fallback
+      return imageUrl.startsWith('http://') || imageUrl.startsWith('https://') ? imageUrl : null;
+    }
+  };
+
+  const deleteRecipientImage = async (imageUrl: string) => {
+    try {
+      // Extract file path from URL
+      const urlParts = imageUrl.split('/');
+      const filePath = urlParts.slice(urlParts.indexOf('asset-documents') + 1).join('/');
+      
+      const { error } = await supabase.storage
+        .from('asset-documents')
+        .remove([filePath]);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error("Error deleting image:", error);
+      // Don't throw - image deletion failure shouldn't block the update
+    }
   };
 
   const handleSaveRecipient = async () => {
@@ -168,8 +342,37 @@ const Recipients = () => {
     }
 
     setSaving(true);
+    setUploadingImage(true);
     try {
+      let imageUrl: string | null = null;
+
       if (editingRecipient) {
+        // Handle image upload/update for existing recipient
+        if (selectedImage) {
+          try {
+            imageUrl = await uploadRecipientImage(editingRecipient.id, selectedImage);
+            
+            // If had an old image, delete it
+            if (editingRecipient.image_url && editingRecipient.image_url !== imageUrl) {
+              await deleteRecipientImage(editingRecipient.image_url);
+            }
+          } catch (error) {
+            console.error("Error uploading image:", error);
+            toast.error("Failed to upload image. Please try again.");
+            setUploadingImage(false);
+            setSaving(false);
+            return;
+          }
+        } else if (!imagePreview && editingRecipient.image_url) {
+          // If image was removed, delete the old one
+          await deleteRecipientImage(editingRecipient.image_url);
+          imageUrl = null;
+        } else if (imagePreview === editingRecipient.image_url) {
+          // Keep existing image
+          imageUrl = editingRecipient.image_url;
+        }
+
+        // Update existing recipient
         // Update existing recipient
         const updateData: any = {
           full_name: nameValidation.sanitized,
@@ -178,6 +381,10 @@ const Recipients = () => {
           relationship: relationshipValue,
         };
 
+        if (imageUrl !== undefined) {
+          updateData.image_url = imageUrl;
+        }
+
         // Note: Verification code generation and hashing is handled by send-verification-email function
         // We don't need to generate codes here anymore
 
@@ -185,12 +392,34 @@ const Recipients = () => {
           .from("recipients")
           .update(updateData)
           .eq("id", editingRecipient.id)
-          .select()
+          .select("*")
           .single();
 
         if (error) throw error;
         
-        setRecipients(recipients.map(r => r.id === editingRecipient.id ? data : r));
+        const updatedRecipient: Recipient = {
+          id: data.id,
+          full_name: data.full_name,
+          email: data.email,
+          phone: data.phone,
+          relationship: data.relationship,
+          is_verified: data.is_verified,
+          image_url: (data as any).image_url || null,
+        };
+        
+        setRecipients(recipients.map(r => r.id === editingRecipient.id ? updatedRecipient : r));
+        
+        // Update image URL cache if new image was uploaded
+        if (imageUrl) {
+          setImageUrls(prev => ({ ...prev, [editingRecipient.id]: imageUrl }));
+        } else if (!imagePreview && editingRecipient.image_url) {
+          // Remove from cache if image was deleted
+          setImageUrls(prev => {
+            const newUrls = { ...prev };
+            delete newUrls[editingRecipient.id];
+            return newUrls;
+          });
+        }
         toast.success(t("recipients.recipientUpdated") || "Recipient updated successfully");
 
         // Send verification email if email changed and wasn't verified
@@ -208,6 +437,7 @@ const Recipients = () => {
         // Note: Verification code generation and hashing is handled by send-verification-email function
         // We don't need to generate codes here anymore
 
+        // First create the recipient
         const { data, error } = await supabase
           .from("recipients")
           .insert({
@@ -217,12 +447,75 @@ const Recipients = () => {
             phone: phoneValue,
             relationship: relationshipValue,
           })
-          .select()
+          .select("*")
           .single();
 
         if (error) throw error;
+
+        // Upload image after recipient is created (if image was selected)
+        let finalImageUrl = null;
+        if (selectedImage && data.id) {
+          try {
+            finalImageUrl = await uploadRecipientImage(data.id, selectedImage);
+            // Update recipient with image URL
+            const { data: updatedData, error: updateError } = await supabase
+              .from("recipients")
+              .update({ image_url: finalImageUrl } as any)
+              .eq("id", data.id)
+              .select("*")
+              .single();
+            
+            if (!updateError && updatedData) {
+              const recipientWithImage: Recipient = {
+                id: updatedData.id,
+                full_name: updatedData.full_name,
+                email: updatedData.email,
+                phone: updatedData.phone,
+                relationship: updatedData.relationship,
+                is_verified: updatedData.is_verified,
+                image_url: (updatedData as any).image_url || null,
+              };
+              setRecipients([recipientWithImage, ...recipients]);
+            } else {
+              const recipientData: Recipient = {
+                id: data.id,
+                full_name: data.full_name,
+                email: data.email,
+                phone: data.phone,
+                relationship: data.relationship,
+                is_verified: data.is_verified,
+                image_url: (data as any).image_url || null,
+              };
+              setRecipients([recipientData, ...recipients]);
+            }
+          } catch (uploadError) {
+            console.error("Error uploading image:", uploadError);
+            // Continue with recipient creation even if image upload fails
+            const recipientData: Recipient = {
+              id: data.id,
+              full_name: data.full_name,
+              email: data.email,
+              phone: data.phone,
+              relationship: data.relationship,
+              is_verified: data.is_verified,
+              image_url: (data as any).image_url || null,
+            };
+            setRecipients([recipientData, ...recipients]);
+            toast.warning("Recipient added, but image upload failed");
+          }
+        } else {
+          const recipientData: Recipient = {
+            id: data.id,
+            full_name: data.full_name,
+            email: data.email,
+            phone: data.phone,
+            relationship: data.relationship,
+            is_verified: data.is_verified,
+            image_url: (data as any).image_url || null,
+          };
+          setRecipients([recipientData, ...recipients]);
+        }
         
-        setRecipients([data, ...recipients]);
         toast.success(t("recipients.recipientAdded"));
 
         // Send verification email if email is provided
@@ -238,6 +531,8 @@ const Recipients = () => {
       }
 
       setNewRecipient({ full_name: "", email: "", phone: "", relationship: "" });
+      setSelectedImage(null);
+      setImagePreview(null);
       setEditingRecipient(null);
       setShowAddModal(false);
     } catch (error) {
@@ -245,6 +540,7 @@ const Recipients = () => {
       toast.error(editingRecipient ? (t("recipients.failedToUpdate") || "Failed to update recipient") : t("recipients.failedToAdd"));
     } finally {
       setSaving(false);
+      setUploadingImage(false);
     }
   };
 
@@ -260,6 +556,14 @@ const Recipients = () => {
 
   const handleDeleteRecipient = async (id: string) => {
     try {
+      // Find recipient to get image URL
+      const recipient = recipients.find(r => r.id === id);
+      
+      // Delete image if exists
+      if (recipient?.image_url) {
+        await deleteRecipientImage(recipient.image_url);
+      }
+
       const { error } = await supabase.from("recipients").delete().eq("id", id);
       if (error) throw error;
       
@@ -329,12 +633,46 @@ const Recipients = () => {
             transition={{ delay: 0.1 }}
             className="space-y-4 mb-8"
           >
-            {recipients.map((recipient) => (
-              <div key={recipient.id} className="card-elevated">
-                <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-navy to-navy-light flex items-center justify-center text-primary-foreground font-semibold text-lg">
-                    {recipient.full_name.charAt(0)}
-                  </div>
+            {recipients.map((recipient) => {
+              const imageUrl = imageUrls[recipient.id] || recipient.image_url;
+              return (
+                <div key={recipient.id} className="card-elevated hover:shadow-lg transition-shadow duration-200">
+                  <div className="flex items-start gap-4">
+                    {imageUrl ? (
+                      <div className="w-14 h-14 rounded-full overflow-hidden flex-shrink-0 border-2 border-border shadow-sm ring-1 ring-border/30">
+                        <img 
+                          src={imageUrl} 
+                          alt={recipient.full_name}
+                          className="w-full h-full object-cover"
+                          onError={async (e) => {
+                            // Try to get signed URL if public URL fails
+                            if (recipient.image_url && !imageUrls[recipient.id]) {
+                              try {
+                                const signedUrl = await getRecipientImageUrl(recipient.image_url);
+                                if (signedUrl) {
+                                  setImageUrls(prev => ({ ...prev, [recipient.id]: signedUrl }));
+                                  const target = e.target as HTMLImageElement;
+                                  target.src = signedUrl;
+                                  return;
+                                }
+                              } catch (error) {
+                                console.error("Error getting signed URL:", error);
+                              }
+                            }
+                            // Fallback to initial if image fails to load
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            if (target.parentElement) {
+                              target.parentElement.innerHTML = `<div class="w-14 h-14 rounded-full bg-gradient-to-br from-navy to-navy-light flex items-center justify-center text-primary-foreground font-semibold text-lg flex-shrink-0">${recipient.full_name.charAt(0).toUpperCase()}</div>`;
+                            }
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-navy to-navy-light flex items-center justify-center text-primary-foreground font-semibold text-lg flex-shrink-0 shadow-sm">
+                        {recipient.full_name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <h3 className="font-semibold text-foreground">{recipient.full_name}</h3>
@@ -391,7 +729,8 @@ const Recipients = () => {
                   </div>
                 </div>
               </div>
-            ))}
+            );
+            })}
 
             {recipients.length === 0 && (
               <div className="card-elevated text-center py-12">
@@ -461,6 +800,8 @@ const Recipients = () => {
                     setShowAddModal(false);
                     setEditingRecipient(null);
                     setNewRecipient({ full_name: "", email: "", phone: "", relationship: "" });
+                    setSelectedImage(null);
+                    setImagePreview(null);
                   }} 
                   className="p-2 hover:bg-secondary rounded-lg"
                 >
@@ -469,6 +810,85 @@ const Recipients = () => {
               </div>
 
               <div className="space-y-4">
+                {/* Profile Photo Section */}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-3">
+                    Profile Photo
+                    <span className="text-muted-foreground font-normal ml-1.5">(Optional)</span>
+                  </label>
+                  <div className="flex items-start gap-4">
+                    <div className="relative">
+                      {imagePreview ? (
+                        <>
+                          <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-border shadow-md ring-1 ring-border/20">
+                            <img 
+                              src={imagePreview} 
+                              alt="Profile preview"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleRemoveImage}
+                            className="absolute -top-1 -right-1 w-7 h-7 rounded-full bg-destructive text-white flex items-center justify-center hover:bg-destructive/90 transition-all duration-200 shadow-lg hover:scale-110 z-10 border-2 border-background"
+                            title="Remove photo"
+                            aria-label="Remove photo"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      ) : (
+                        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-secondary/80 to-secondary/40 flex items-center justify-center border-2 border-dashed border-border/50 hover:border-border/70 transition-all duration-200">
+                          <div className="text-center">
+                            <ImageIcon className="w-7 h-7 text-muted-foreground mx-auto mb-1" />
+                            <span className="text-xs text-muted-foreground">No photo</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 pt-1">
+                      <label className="cursor-pointer inline-block">
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif"
+                          onChange={handleImageSelect}
+                          className="hidden"
+                          disabled={uploadingImage || saving}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
+                          disabled={uploadingImage || saving}
+                          asChild
+                        >
+                          <span>
+                            {uploadingImage ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Uploading...
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="w-4 h-4" />
+                                {imagePreview ? "Change Photo" : "Upload Photo"}
+                              </>
+                            )}
+                          </span>
+                        </Button>
+                      </label>
+                      <div className="mt-2.5 space-y-1">
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          Recommended: Square image, at least 200×200px
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Max size: 5MB • Formats: JPG, PNG, WebP, GIF
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">{t("recipients.fullName")}</label>
                   <input
@@ -534,12 +954,15 @@ const Recipients = () => {
                     setShowAddModal(false);
                     setEditingRecipient(null);
                     setNewRecipient({ full_name: "", email: "", phone: "", relationship: "" });
+                    setSelectedImage(null);
+                    setImagePreview(null);
                   }}
+                  disabled={saving || uploadingImage}
                 >
                   {t("common.cancel")}
                 </Button>
-                <Button variant="gold" className="flex-1" onClick={handleSaveRecipient} disabled={saving}>
-                  {saving ? (
+                <Button variant="gold" className="flex-1" onClick={handleSaveRecipient} disabled={saving || uploadingImage}>
+                  {saving || uploadingImage ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     editingRecipient ? (t("recipients.updateRecipient") || "Update Recipient") : t("recipients.addRecipient")

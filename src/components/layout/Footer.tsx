@@ -1,7 +1,9 @@
 import { Link } from "react-router-dom";
 import { Shield, Heart } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 const Footer = () => {
+  const { t } = useTranslation();
   return (
     <footer className="bg-primary text-primary-foreground">
       <div className="container mx-auto px-4 py-16">
@@ -17,40 +19,40 @@ const Footer = () => {
               </span>
             </Link>
             <p className="text-primary-foreground/70 text-sm leading-relaxed">
-              Secure your legacy with modern digital will management. Peace of mind for you and your loved ones.
+              {t("footer.description")}
             </p>
           </div>
 
           {/* Product */}
           <div>
-            <h4 className="font-serif font-semibold mb-4">Product</h4>
+            <h4 className="font-serif font-semibold mb-4">{t("footer.product")}</h4>
             <ul className="space-y-3 text-sm text-primary-foreground/70">
-              <li><Link to="/how-it-works" className="hover:text-gold transition-colors">How It Works</Link></li>
-              <li><Link to="/pricing" className="hover:text-gold transition-colors">Pricing</Link></li>
-              <li><Link to="/features" className="hover:text-gold transition-colors">Features</Link></li>
-              <li><Link to="/security" className="hover:text-gold transition-colors">Security</Link></li>
+              <li><Link to="/how-it-works" className="hover:text-gold transition-colors">{t("footer.howItWorks")}</Link></li>
+              <li><Link to="/pricing" className="hover:text-gold transition-colors">{t("footer.pricing")}</Link></li>
+              <li><Link to="/features" className="hover:text-gold transition-colors">{t("footer.features")}</Link></li>
+              <li><Link to="/security" className="hover:text-gold transition-colors">{t("footer.security")}</Link></li>
             </ul>
           </div>
 
           {/* Company */}
           <div>
-            <h4 className="font-serif font-semibold mb-4">Company</h4>
+            <h4 className="font-serif font-semibold mb-4">{t("footer.company")}</h4>
             <ul className="space-y-3 text-sm text-primary-foreground/70">
-              <li><Link to="/about" className="hover:text-gold transition-colors">About Us</Link></li>
-              <li><Link to="/blog" className="hover:text-gold transition-colors">Blog</Link></li>
-              <li><Link to="/careers" className="hover:text-gold transition-colors">Careers</Link></li>
-              <li><Link to="/contact" className="hover:text-gold transition-colors">Contact</Link></li>
+              <li><Link to="/about" className="hover:text-gold transition-colors">{t("footer.aboutUs")}</Link></li>
+              <li><Link to="/blog" className="hover:text-gold transition-colors">{t("footer.blog")}</Link></li>
+              <li><Link to="/careers" className="hover:text-gold transition-colors">{t("footer.careers")}</Link></li>
+              <li><Link to="/contact" className="hover:text-gold transition-colors">{t("footer.contact")}</Link></li>
             </ul>
           </div>
 
           {/* Legal */}
           <div>
-            <h4 className="font-serif font-semibold mb-4">Legal</h4>
+            <h4 className="font-serif font-semibold mb-4">{t("footer.legal")}</h4>
             <ul className="space-y-3 text-sm text-primary-foreground/70">
-              <li><Link to="/privacy" className="hover:text-gold transition-colors">Privacy Policy</Link></li>
-              <li><Link to="/terms" className="hover:text-gold transition-colors">Terms of Service</Link></li>
-              <li><Link to="/gdpr" className="hover:text-gold transition-colors">GDPR Compliance</Link></li>
-              <li><Link to="/accessibility" className="hover:text-gold transition-colors">Accessibility</Link></li>
+              <li><Link to="/privacy" className="hover:text-gold transition-colors">{t("footer.privacyPolicy")}</Link></li>
+              <li><Link to="/terms" className="hover:text-gold transition-colors">{t("footer.termsOfService")}</Link></li>
+              <li><Link to="/gdpr" className="hover:text-gold transition-colors">{t("footer.gdprCompliance")}</Link></li>
+              <li><Link to="/accessibility" className="hover:text-gold transition-colors">{t("footer.accessibility")}</Link></li>
             </ul>
           </div>
         </div>
@@ -58,10 +60,10 @@ const Footer = () => {
         {/* Bottom Bar */}
         <div className="pt-8 border-t border-primary-foreground/20 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-sm text-primary-foreground/60">
-            © {new Date().getFullYear()} LegacyVault. All rights reserved.
+            {t("footer.allRightsReserved", { year: new Date().getFullYear() })}
           </p>
           <p className="text-sm text-primary-foreground/60 flex items-center gap-1">
-            Made with <Heart className="w-4 h-4 text-gold" /> for your peace of mind
+            {t("footer.madeWith")} <Heart className="w-4 h-4 text-gold" /> {t("footer.forPeaceOfMind")}
           </p>
         </div>
       </div>
