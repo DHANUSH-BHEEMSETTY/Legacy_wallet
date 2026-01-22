@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -40,6 +40,9 @@ interface Recipient {
 const Recipients = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
+  const isFlowMode = searchParams.get('flow') === 'true';
+  
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -77,7 +80,22 @@ const Recipients = () => {
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error fetching recipients:", error);
+        // Only show error if it's not a "no data" type error
+        const errorMessage = error?.message || String(error);
+        if (
+          !errorMessage.includes("no rows") &&
+          !errorMessage.includes("relation") &&
+          !errorMessage.includes("does not exist")
+        ) {
+          throw error;
+        }
+        // If it's just "no data", set empty array and return
+        setRecipients([]);
+        return;
+      }
+      
       if (data) {
         // Ensure all recipients have image_url (can be null)
         const recipientsWithImage = data.map((r: any) => ({
@@ -111,9 +129,20 @@ const Recipients = () => {
         });
         setImageUrls(urlMap);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching recipients:", error);
-      toast.error(t("recipients.failedToLoad"));
+      // Only show toast for unexpected errors
+      const errorMessage = error?.message || String(error);
+      if (
+        !errorMessage.includes("no rows") &&
+        !errorMessage.includes("relation") &&
+        !errorMessage.includes("does not exist")
+      ) {
+        toast.error(t("recipients.failedToLoad") || "Failed to load recipients");
+      } else {
+        // Silently handle - just no data yet
+        setRecipients([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -593,22 +622,24 @@ const Recipients = () => {
       <main className="pt-24 pb-12 px-4">
         <div className="container mx-auto max-w-4xl">
           {/* Back Button */}
-          <Link to="/assets" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-6">
+          <Link to={isFlowMode ? "/assets?flow=true" : "/dashboard"} className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-6">
             <ArrowLeft className="w-4 h-4" />
-            {t("recipients.backToAssets")}
+            {isFlowMode ? t("recipients.backToAssets") || "Back to Assets" : "Back to Dashboard"}
           </Link>
 
-          {/* Progress Indicator */}
-          <div className="flex items-center gap-2 mb-8">
-            {[1, 2, 3, 4].map((step) => (
-              <div key={step} className="flex items-center gap-2">
-                <div className={`progress-step ${step === 4 ? "progress-step-active" : "progress-step-completed"}`}>
-                  {step < 4 ? <Check className="w-4 h-4" /> : step}
+          {/* Progress Indicator - Only show in flow mode */}
+          {isFlowMode && (
+            <div className="flex items-center gap-2 mb-8">
+              {[1, 2, 3, 4].map((step) => (
+                <div key={step} className="flex items-center gap-2">
+                  <div className={`progress-step ${step === 4 ? "progress-step-active" : "progress-step-completed"}`}>
+                    {step < 4 ? <Check className="w-4 h-4" /> : step}
+                  </div>
+                  {step < 4 && <div className="w-8 h-0.5 bg-border" />}
                 </div>
-                {step < 4 && <div className="w-8 h-0.5 bg-border" />}
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
 
           {/* Header */}
           <motion.div
@@ -745,32 +776,34 @@ const Recipients = () => {
             )}
           </motion.div>
 
-          {/* Navigation */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
-            className="flex items-center justify-between"
-          >
-            <Link to="/assets">
-              <Button variant="ghost" className="gap-2">
-                <ArrowLeft className="w-4 h-4" />
-                {t("common.back")}
-              </Button>
-            </Link>
-            <div className="flex items-center gap-4">
-              <p className="text-sm text-muted-foreground flex items-center gap-2">
-                <Shield className="w-4 h-4" />
-                {t("common.secure") || "Secure & Encrypted"}
-              </p>
-              <Link to="/review">
-                <Button variant="gold" className="gap-2">
-                  {t("wills.reviewWill")}
-                  <ArrowRight className="w-4 h-4" />
+          {/* Navigation - Only show in flow mode */}
+          {isFlowMode && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              className="flex items-center justify-between mt-8"
+            >
+              <Link to="/assets?flow=true">
+                <Button variant="ghost" className="gap-2">
+                  <ArrowLeft className="w-4 h-4" />
+                  {t("common.back") || "Back"}
                 </Button>
               </Link>
-            </div>
-          </motion.div>
+              <div className="flex items-center gap-4">
+                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                  <Shield className="w-4 h-4" />
+                  {t("common.secure") || "Secure & Encrypted"}
+                </p>
+                <Link to="/review">
+                  <Button variant="gold" className="gap-2">
+                    {t("wills.reviewWill") || "Review Will"}
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </Link>
+              </div>
+            </motion.div>
+          )}
         </div>
       </main>
 

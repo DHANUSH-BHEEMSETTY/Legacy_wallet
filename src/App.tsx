@@ -21,6 +21,7 @@ import Recipients from "./pages/Recipients";
 import ReviewWill from "./pages/ReviewWill";
 import WillDetail from "./pages/WillDetail";
 import Confirmation from "./pages/Confirmation";
+import Reminders from "./pages/Reminders";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
@@ -57,6 +58,7 @@ const App = () => (
             <Route path="/review" element={<ProtectedRoute><ReviewWill /></ProtectedRoute>} />
             <Route path="/will/:id" element={<ProtectedRoute><WillDetail /></ProtectedRoute>} />
             <Route path="/confirmation" element={<ProtectedRoute><Confirmation /></ProtectedRoute>} />
+            <Route path="/reminders" element={<ProtectedRoute><Reminders /></ProtectedRoute>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

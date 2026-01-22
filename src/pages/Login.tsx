@@ -11,13 +11,21 @@ import {
   ArrowRight,
   User,
   Loader2,
-  Check,
+  Info,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { MIN_LENGTHS } from "@/lib/validation";
 import { validatePasswordSecurity } from "@/lib/passwordSecurity";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -30,6 +38,26 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [passwordStrength, setPasswordStrength] = useState(0);
+  const [showPasswordHint, setShowPasswordHint] = useState(false);
+
+  // Calculate password strength
+  const calculatePasswordStrength = (pass: string) => {
+    let strength = 0;
+    if (pass.length >= MIN_LENGTHS.PASSWORD) strength += 20;
+    if (/[A-Z]/.test(pass)) strength += 20;
+    if (/[a-z]/.test(pass)) strength += 20;
+    if (/[0-9]/.test(pass)) strength += 20;
+    if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pass)) strength += 20;
+    return strength;
+  };
+
+  // Update password strength on password change
+  useEffect(() => {
+    if (!isLogin) {
+      setPasswordStrength(calculatePasswordStrength(password));
+    }
+  }, [password, isLogin]);
 
   // Redirect if already logged in
   useEffect(() => {
@@ -66,34 +94,36 @@ const Login = () => {
       });
 
       if (!passwordValidation.isValid) {
-        // Show first error (most important)
-        const errorMessage = passwordValidation.errors[0];
+        setLoading(false);
         
-        // Use specific translation keys for leaked passwords
+        // Use specific messages for leaked passwords
         if (passwordValidation.isLeaked) {
           if (passwordValidation.leakCount && passwordValidation.leakCount > 1000) {
-            toast.error(t("login.passwordLeakedMultiple") || errorMessage);
+            toast.error(
+              "Password Security Alert",
+              {
+                description: "This password has been compromised in data breaches. Please choose a unique password.",
+                duration: 5000,
+              }
+            );
           } else {
-            toast.error(t("login.passwordLeaked") || errorMessage);
+            toast.error(
+              "Password Security Alert", 
+              {
+                description: "This password has been found in a data breach. Please use a different password.",
+                duration: 5000,
+              }
+            );
           }
         } else {
-          // Map common errors to translation keys
-          if (errorMessage.includes("at least 8 characters")) {
-            toast.error(t("login.passwordMinLength"));
-          } else if (errorMessage.includes("uppercase")) {
-            toast.error(t("login.passwordRuleUppercase"));
-          } else if (errorMessage.includes("lowercase")) {
-            toast.error(t("login.passwordRuleLowercase"));
-          } else if (errorMessage.includes("number")) {
-            toast.error(t("login.passwordRuleNumber"));
-          } else if (errorMessage.includes("special")) {
-            toast.error(t("login.passwordRuleSpecial"));
-          } else {
-            toast.error(errorMessage);
-          }
+          // Show a friendly error for other validation issues
+          const errorMessage = passwordValidation.errors[0];
+          toast.error("Password Requirements Not Met", {
+            description: errorMessage,
+            duration: 4000,
+          });
         }
         
-        setLoading(false);
         return;
       }
     }
@@ -159,18 +189,20 @@ const Login = () => {
           </Link>
 
           {/* Header */}
-          <h1 className="heading-section text-foreground mb-2">
-            {isLogin ? t("login.welcomeBack") : t("login.createAccount")}
-          </h1>
-          <p className="text-muted-foreground mb-8">
-            {isLogin 
-              ? t("login.signInToManage")
-              : t("login.startSecuring")
-            }
-          </p>
+          <div className="mb-8">
+            <h1 className="heading-section text-foreground mb-2">
+              {isLogin ? t("login.welcomeBack") : t("login.createAccount")}
+            </h1>
+            <p className="text-muted-foreground text-base">
+              {isLogin 
+                ? t("login.signInToManage")
+                : t("login.startSecuring")
+              }
+            </p>
+          </div>
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
             {!isLogin && (
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">
@@ -183,8 +215,9 @@ const Login = () => {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="John Smith"
-                    className="input-elevated pl-12"
+                    className="input-elevated pl-12 transition-all"
                     disabled={loading}
+                    autoComplete="name"
                   />
                 </div>
               </div>
@@ -201,72 +234,118 @@ const Login = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="john@email.com"
-                  className="input-elevated pl-12"
+                  className="input-elevated pl-12 transition-all"
                   disabled={loading}
+                  autoComplete="email"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-foreground mb-2">
-                {t("login.password")}
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-foreground">
+                  {t("login.password")}
+                </label>
+                {!isLogin && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          onClick={() => setShowPasswordHint(!showPasswordHint)}
+                        >
+                          <Info className="w-4 h-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="max-w-xs">
+                        <p className="text-xs font-medium mb-2">Password Requirements:</p>
+                        <ul className="space-y-1 text-xs">
+                          <li>• At least 8 characters</li>
+                          <li>• One uppercase & lowercase letter</li>
+                          <li>• One number & special character</li>
+                          <li>• Not found in data breaches</li>
+                        </ul>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="Create a strong password"
                   className="input-elevated pl-12 pr-12"
                   disabled={loading}
+                  onFocus={() => !isLogin && setShowPasswordHint(true)}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              {!isLogin && (
-                <div className="mt-3 p-3 bg-secondary/50 rounded-lg border border-border">
-                  <p className="text-xs font-medium text-foreground mb-2">
-                    {t("login.passwordRequirements")}
-                  </p>
-                  <ul className="space-y-1.5 text-xs text-muted-foreground">
-                    <li className={`flex items-center gap-2 ${password.length >= MIN_LENGTHS.PASSWORD ? 'text-green-600' : ''}`}>
-                      <Check className={`w-3.5 h-3.5 ${password.length >= MIN_LENGTHS.PASSWORD ? 'text-green-600' : 'text-muted-foreground/50'}`} />
-                      {t("login.passwordRuleLength")}
-                    </li>
-                    <li className={`flex items-center gap-2 ${/[A-Z]/.test(password) ? 'text-green-600' : ''}`}>
-                      <Check className={`w-3.5 h-3.5 ${/[A-Z]/.test(password) ? 'text-green-600' : 'text-muted-foreground/50'}`} />
-                      {t("login.passwordRuleUppercase")}
-                    </li>
-                    <li className={`flex items-center gap-2 ${/[a-z]/.test(password) ? 'text-green-600' : ''}`}>
-                      <Check className={`w-3.5 h-3.5 ${/[a-z]/.test(password) ? 'text-green-600' : 'text-muted-foreground/50'}`} />
-                      {t("login.passwordRuleLowercase")}
-                    </li>
-                    <li className={`flex items-center gap-2 ${/[0-9]/.test(password) ? 'text-green-600' : ''}`}>
-                      <Check className={`w-3.5 h-3.5 ${/[0-9]/.test(password) ? 'text-green-600' : 'text-muted-foreground/50'}`} />
-                      {t("login.passwordRuleNumber")}
-                    </li>
-                    <li className={`flex items-center gap-2 ${/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password) ? 'text-green-600' : ''}`}>
-                      <Check className={`w-3.5 h-3.5 ${/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password) ? 'text-green-600' : 'text-muted-foreground/50'}`} />
-                      {t("login.passwordRuleSpecial")}
-                    </li>
-                  </ul>
+              
+              {/* Password Strength Indicator for Signup */}
+              {!isLogin && password.length > 0 && (
+                <div className="mt-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          passwordStrength <= 40
+                            ? "bg-red-500"
+                            : passwordStrength <= 60
+                            ? "bg-orange-500"
+                            : passwordStrength <= 80
+                            ? "bg-yellow-500"
+                            : "bg-green-500"
+                        }`}
+                        style={{ width: `${passwordStrength}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-medium text-muted-foreground min-w-[60px]">
+                      {passwordStrength <= 40
+                        ? "Weak"
+                        : passwordStrength <= 60
+                        ? "Fair"
+                        : passwordStrength <= 80
+                        ? "Good"
+                        : "Strong"}
+                    </span>
+                  </div>
+                  {showPasswordHint && passwordStrength < 100 && (
+                    <div className="mt-2 p-2 bg-secondary/30 rounded-md border border-border/50">
+                      <p className="text-xs text-muted-foreground flex items-start gap-2">
+                        <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        <span>
+                          {passwordStrength < 40
+                            ? "Add uppercase, lowercase, numbers, and special characters for better security."
+                            : passwordStrength < 60
+                            ? "Good start! Add more character variety for stronger security."
+                            : passwordStrength < 80
+                            ? "Almost there! Ensure all requirements are met."
+                            : "Great password! We'll also check it hasn't been compromised."}
+                        </span>
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
             {isLogin && (
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" className="rounded border-border" />
-                  <span className="text-muted-foreground">{t("login.rememberMe")}</span>
+              <div className="flex items-center justify-between pt-1">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" className="rounded border-border cursor-pointer" />
+                  <span className="text-muted-foreground select-none">{t("login.rememberMe")}</span>
                 </label>
-                <Link to="/forgot-password" className="text-sm text-gold hover:underline">
+                <Link to="/forgot-password" className="text-sm text-gold hover:underline font-medium">
                   {t("login.forgotPassword")}
                 </Link>
               </div>
@@ -274,33 +353,56 @@ const Login = () => {
 
             <Button 
               variant="gold" 
-              className="w-full gap-2" 
+              className="w-full gap-2 mt-6" 
               size="lg" 
               type="submit"
-              disabled={loading}
+              disabled={loading || (!isLogin && passwordStrength < 100)}
             >
               {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>{isLogin ? "Signing in..." : "Creating account..."}</span>
+                </>
               ) : (
                 <>
                   {isLogin ? t("login.signIn") : t("login.createAccountButton")}
-                  <ArrowRight className="w-4 h-4" />
+                  <ArrowRight className="w-5 h-5" />
                 </>
               )}
             </Button>
+
+            {!isLogin && passwordStrength < 100 && password.length > 0 && (
+              <p className="text-xs text-center text-muted-foreground">
+                Complete all password requirements to continue
+              </p>
+            )}
           </form>
 
           {/* Toggle */}
-          <p className="text-center text-sm text-muted-foreground mt-8">
-            {isLogin ? t("login.dontHaveAccount") + " " : t("login.alreadyHaveAccount") + " "}
+          <div className="mt-8 text-center">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-border"></div>
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  {isLogin ? "Don't have an account?" : "Already have an account?"}
+                </span>
+              </div>
+            </div>
             <button
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-gold hover:underline font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => {
+                setIsLogin(!isLogin);
+                setPassword("");
+                setPasswordStrength(0);
+                setShowPasswordHint(false);
+              }}
+              className="mt-4 text-sm font-semibold text-gold hover:text-gold-light transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={loading}
             >
-              {isLogin ? t("login.signUp") : t("login.signInLink")}
+              {isLogin ? "Create Account" : "Sign In"}
             </button>
-          </p>
+          </div>
         </motion.div>
       </div>
 

@@ -27,11 +27,15 @@ import {
   Link as LinkIcon,
   CheckCircle2,
   ArrowRight,
+  Trash2,
+  Edit3,
+  X,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import {
   ChartContainer,
   ChartTooltip,
@@ -100,6 +104,9 @@ const Dashboard = () => {
   const [assetCount, setAssetCount] = useState(0);
   const [recipientCount, setRecipientCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [isManagingWills, setIsManagingWills] = useState(false);
+  const [selectedWills, setSelectedWills] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -132,6 +139,71 @@ const Dashboard = () => {
       console.error("Error fetching data:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleManageMode = () => {
+    setIsManagingWills(!isManagingWills);
+    setSelectedWills(new Set());
+  };
+
+  const toggleWillSelection = (willId: string) => {
+    const newSelected = new Set(selectedWills);
+    if (newSelected.has(willId)) {
+      newSelected.delete(willId);
+    } else {
+      newSelected.add(willId);
+    }
+    setSelectedWills(newSelected);
+  };
+
+  const selectAllWills = () => {
+    if (selectedWills.size === wills.length) {
+      setSelectedWills(new Set());
+    } else {
+      setSelectedWills(new Set(wills.map((w) => w.id)));
+    }
+  };
+
+  const handleDeleteWills = async () => {
+    if (selectedWills.size === 0) return;
+
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete ${selectedWills.size} will${selectedWills.size > 1 ? "s" : ""}? This action cannot be undone.`
+    );
+
+    if (!confirmDelete) return;
+
+    setIsDeleting(true);
+    try {
+      const willIds = Array.from(selectedWills);
+      
+      // Delete wills from database
+      const { error } = await supabase
+        .from("wills")
+        .delete()
+        .in("id", willIds);
+
+      if (error) throw error;
+
+      // Update local state
+      setWills(wills.filter((w) => !selectedWills.has(w.id)));
+      setSelectedWills(new Set());
+      setIsManagingWills(false);
+
+      // Show success message
+      const deletedCount = willIds.length;
+      if (deletedCount === 1) {
+        const deletedWill = wills.find((w) => w.id === willIds[0]);
+        toast.success(`"${deletedWill?.title}" has been deleted successfully.`);
+      } else {
+        toast.success(`${deletedCount} wills have been deleted successfully.`);
+      }
+    } catch (error: any) {
+      console.error("Error deleting wills:", error);
+      toast.error(`Failed to delete wills: ${error.message}`);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -798,34 +870,116 @@ const Dashboard = () => {
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-serif text-xl font-semibold text-foreground">{t("dashboard.myWills")}</h2>
-              <Link to="/create">
-                <Button variant="gold" size="sm" className="gap-2">
-                  <Plus className="w-4 h-4" />
-                  {t("dashboard.newWill")}
-                </Button>
-              </Link>
+              <div className="flex items-center gap-2">
+                {wills.length > 0 && (
+                  <Button
+                    variant={isManagingWills ? "outline" : "ghost"}
+                    size="sm"
+                    onClick={toggleManageMode}
+                    className="gap-2"
+                  >
+                    {isManagingWills ? (
+                      <>
+                        <X className="w-4 h-4" />
+                        Cancel
+                      </>
+                    ) : (
+                      <>
+                        <Edit3 className="w-4 h-4" />
+                        Manage
+                      </>
+                    )}
+                  </Button>
+                )}
+                {!isManagingWills && (
+                  <Link to="/create">
+                    <Button variant="gold" size="sm" className="gap-2">
+                      <Plus className="w-4 h-4" />
+                      {t("dashboard.newWill")}
+                    </Button>
+                  </Link>
+                )}
+              </div>
             </div>
+
+            {/* Manage Mode Controls */}
+            {isManagingWills && wills.length > 0 && (
+              <div className="flex items-center justify-between p-4 bg-secondary/50 rounded-lg mb-4">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedWills.size === wills.length}
+                    onChange={selectAllWills}
+                    className="w-4 h-4 rounded border-border cursor-pointer"
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    {selectedWills.size === 0
+                      ? "Select wills to delete"
+                      : `${selectedWills.size} will${selectedWills.size > 1 ? "s" : ""} selected`}
+                  </span>
+                </div>
+                {selectedWills.size > 0 && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleDeleteWills}
+                    disabled={isDeleting}
+                    className="gap-2"
+                  >
+                    {isDeleting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4" />
+                        Delete {selectedWills.size > 1 ? `(${selectedWills.size})` : ""}
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+            )}
 
             <div className="space-y-4">
               {wills.map((will) => {
                 const WillIcon = getWillIcon(will.type);
                 const hasContent = hasWillContent(will);
                 const preview = getWillPreview(will);
+                const isSelected = selectedWills.has(will.id);
                 
-                return (
-                  <Link key={will.id} to={`/will/${will.id}`}>
-                    <div className="card-interactive p-5 hover:shadow-lg transition-all duration-200">
-                      <div className="flex items-start gap-4">
-                        {/* Will Type Icon */}
-                        <div className={`w-14 h-14 rounded-xl bg-gradient-to-br flex items-center justify-center flex-shrink-0 ${
-                          will.type === "video" 
-                            ? "from-navy to-navy-light" 
-                            : will.type === "chat"
-                            ? "from-sage-dark to-sage"
-                            : "from-gold to-gold-light"
-                        }`}>
-                          <WillIcon className="w-7 h-7 text-primary-foreground" />
+                const WillContent = (
+                  <div className={`card-interactive p-5 hover:shadow-lg transition-all duration-200 ${
+                    isManagingWills ? "cursor-pointer" : ""
+                  } ${isSelected ? "ring-2 ring-gold" : ""}`}>
+                    <div className="flex items-start gap-4">
+                      {/* Checkbox for manage mode */}
+                      {isManagingWills && (
+                        <div className="flex items-center pt-1">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              toggleWillSelection(will.id);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-5 h-5 rounded border-border cursor-pointer"
+                          />
                         </div>
+                      )}
+
+                      {/* Will Type Icon */}
+                      <div className={`w-14 h-14 rounded-xl bg-gradient-to-br flex items-center justify-center flex-shrink-0 ${
+                        will.type === "video" 
+                          ? "from-navy to-navy-light" 
+                          : will.type === "chat"
+                          ? "from-sage-dark to-sage"
+                          : "from-gold to-gold-light"
+                      }`}>
+                        <WillIcon className="w-7 h-7 text-primary-foreground" />
+                      </div>
 
                         {/* Will Details */}
                         <div className="flex-1 min-w-0">
@@ -891,9 +1045,20 @@ const Dashboard = () => {
                           </div>
                         </div>
 
-                        <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-1" />
+                        {!isManagingWills && (
+                          <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-1" />
+                        )}
                       </div>
                     </div>
+                );
+                
+                return isManagingWills ? (
+                  <div key={will.id} onClick={() => toggleWillSelection(will.id)}>
+                    {WillContent}
+                  </div>
+                ) : (
+                  <Link key={will.id} to={`/will/${will.id}`}>
+                    {WillContent}
                   </Link>
                 );
               })}

@@ -243,7 +243,7 @@ const CreateChatWill = () => {
       }
 
       toast.success("Conversation saved successfully");
-      navigate("/assets");
+      navigate("/assets?flow=true");
     } catch (error) {
       console.error("Error saving will:", error);
       toast.error("Failed to save will");

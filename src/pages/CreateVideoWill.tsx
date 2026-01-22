@@ -220,7 +220,7 @@ const CreateVideoWill = () => {
       }
 
       toast.success("Video saved successfully");
-      navigate("/assets");
+      navigate("/assets?flow=true");
     } catch (error) {
       console.error("Error saving video:", error);
       toast.error("Failed to save video");

@@ -20,18 +20,21 @@ const Confirmation = () => {
       title: "Notify Recipients",
       description: "Send invitations to your recipients so they can verify their identity.",
       action: "Send Invites",
+      link: "/recipients",
     },
     {
       icon: Calendar,
       title: "Set Reminders",
       description: "Schedule periodic reminders to review and update your will.",
       action: "Set Up",
+      link: "/reminders",
     },
     {
       icon: Shield,
       title: "Add 2FA",
       description: "Enable two-factor authentication for extra security.",
       action: "Enable",
+      link: "/dashboard",
     },
   ];
 
@@ -143,10 +146,12 @@ const Confirmation = () => {
                     <h3 className="font-semibold text-foreground">{step.title}</h3>
                     <p className="text-sm text-muted-foreground">{step.description}</p>
                   </div>
-                  <Button variant="ghost" size="sm" className="gap-1">
-                    {step.action}
-                    <ArrowRight className="w-4 h-4" />
-                  </Button>
+                  <Link to={step.link || "/dashboard"}>
+                    <Button variant="ghost" size="sm" className="gap-1">
+                      {step.action}
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
                 </motion.div>
               ))}
             </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -70,6 +70,9 @@ interface Asset {
 const AssetManagement = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const [searchParams] = useSearchParams();
+  const isFlowMode = searchParams.get('flow') === 'true';
+  
   const [assets, setAssets] = useState<Asset[]>([]);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,9 +121,26 @@ const AssetManagement = () => {
         supabase.from("asset_allocations").select("*"),
       ]);
 
-      if (assetsRes.error) throw assetsRes.error;
-      if (recipientsRes.error) throw recipientsRes.error;
-      if (allocationsRes.error) throw allocationsRes.error;
+      // Handle errors - but distinguish between "no data" and actual errors
+      if (assetsRes.error) {
+        console.error("Error fetching assets:", assetsRes.error);
+        // Only show error if it's not a "no rows" type error
+        if (!assetsRes.error.message?.includes("no rows")) {
+          throw assetsRes.error;
+        }
+      }
+      if (recipientsRes.error) {
+        console.error("Error fetching recipients:", recipientsRes.error);
+        if (!recipientsRes.error.message?.includes("no rows")) {
+          throw recipientsRes.error;
+        }
+      }
+      if (allocationsRes.error) {
+        console.error("Error fetching allocations:", allocationsRes.error);
+        if (!allocationsRes.error.message?.includes("no rows")) {
+          throw allocationsRes.error;
+        }
+      }
 
       const assetsWithAllocations = (assetsRes.data || []).map((asset) => ({
         ...asset,
@@ -134,9 +154,21 @@ const AssetManagement = () => {
 
       setAssets(assetsWithAllocations);
       setRecipients(recipientsRes.data || []);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching data:", error);
-      toast.error("Failed to load data");
+      // Only show toast error for unexpected errors
+      const errorMessage = error?.message || String(error);
+      if (
+        !errorMessage.includes("no rows") &&
+        !errorMessage.includes("relation") &&
+        !errorMessage.includes("does not exist")
+      ) {
+        toast.error("Failed to load data. Please try again.");
+      } else {
+        // Silently handle - this just means no data exists yet
+        setAssets([]);
+        setRecipients([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -610,22 +642,24 @@ const AssetManagement = () => {
       <main className="pt-24 pb-12 px-4">
         <div className="container mx-auto max-w-4xl">
           {/* Back Button */}
-          <Link to="/dashboard" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-6">
+          <Link to={isFlowMode ? "/create" : "/dashboard"} className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-6">
             <ArrowLeft className="w-4 h-4" />
-            Back to Dashboard
+            {isFlowMode ? "Back to Method Selection" : "Back to Dashboard"}
           </Link>
 
-          {/* Progress Indicator */}
-          <div className="flex items-center gap-2 mb-8">
-            {[1, 2, 3, 4].map((step) => (
-              <div key={step} className="flex items-center gap-2">
-                <div className={`progress-step ${step === 3 ? "progress-step-active" : step < 3 ? "progress-step-completed" : "progress-step-pending"}`}>
-                  {step < 3 ? <Check className="w-4 h-4" /> : step}
+          {/* Progress Indicator - Only show in flow mode */}
+          {isFlowMode && (
+            <div className="flex items-center gap-2 mb-8">
+              {[1, 2, 3, 4].map((step) => (
+                <div key={step} className="flex items-center gap-2">
+                  <div className={`progress-step ${step === 3 ? "progress-step-active" : step < 3 ? "progress-step-completed" : "progress-step-pending"}`}>
+                    {step < 3 ? <Check className="w-4 h-4" /> : step}
+                  </div>
+                  {step < 4 && <div className="w-8 h-0.5 bg-border" />}
                 </div>
-                {step < 4 && <div className="w-8 h-0.5 bg-border" />}
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
 
           {/* Header */}
           <motion.div
@@ -790,26 +824,28 @@ const AssetManagement = () => {
             )}
           </motion.div>
 
-          {/* Navigation */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="flex items-center justify-between"
-          >
-            <Link to="/dashboard">
-              <Button variant="ghost" className="gap-2">
-                <ArrowLeft className="w-4 h-4" />
-                Back
-              </Button>
-            </Link>
-            <Link to="/recipients">
-              <Button variant="gold" className="gap-2">
-                Continue to Recipients
-                <ArrowRight className="w-4 h-4" />
-              </Button>
-            </Link>
-          </motion.div>
+          {/* Navigation - Only show in flow mode */}
+          {isFlowMode && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="flex items-center justify-between mt-8"
+            >
+              <Link to="/create">
+                <Button variant="ghost" className="gap-2">
+                  <ArrowLeft className="w-4 h-4" />
+                  Back
+                </Button>
+              </Link>
+              <Link to="/recipients?flow=true">
+                <Button variant="gold" className="gap-2">
+                  Continue to Recipients
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </Link>
+            </motion.div>
+          )}
         </div>
       </main>
 
