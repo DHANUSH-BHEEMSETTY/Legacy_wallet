@@ -51,10 +51,10 @@ const Login = () => {
       return;
     }
 
+    setLoading(true);
+
     // Validate password requirements (only for signup)
     if (!isLogin) {
-      setLoading(true);
-      
       // Check password security including leaked password check
       const passwordValidation = await validatePasswordSecurity(password, {
         checkLeaked: true,
@@ -96,15 +96,7 @@ const Login = () => {
         setLoading(false);
         return;
       }
-    } else {
-      // For login, just check minimum length
-      if (password.length < MIN_LENGTHS.PASSWORD) {
-        toast.error(t("login.passwordMinLength"));
-        return;
-      }
     }
-
-    setLoading(true);
 
     try {
       if (isLogin) {
@@ -303,7 +295,8 @@ const Login = () => {
             {isLogin ? t("login.dontHaveAccount") + " " : t("login.alreadyHaveAccount") + " "}
             <button
               onClick={() => setIsLogin(!isLogin)}
-              className="text-gold hover:underline font-medium"
+              className="text-gold hover:underline font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={loading}
             >
               {isLogin ? t("login.signUp") : t("login.signInLink")}
             </button>
